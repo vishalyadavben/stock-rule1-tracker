@@ -46,7 +46,12 @@ public class InvestmentController {
         List<Long> stockIds = lots.stream().map(InvestmentLot::getStockId).distinct().toList();
 
         Map<String, String> results = new java.util.LinkedHashMap<>();
+        boolean first = true;
         for (Long stockId : stockIds) {
+            if (!first) {
+                try { Thread.sleep(1200); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+            }
+            first = false;
             Stock stock = stockRepository.findById(stockId).orElse(null);
             if (stock == null) continue;
             try {
@@ -93,6 +98,7 @@ public class InvestmentController {
             return new HoldingView(
                     lot.getId(), stock != null ? stock.getTicker() : "?",
                     stock != null ? stock.getCompanyName() : null,
+                    stock != null ? stock.getCurrency() : "USD",
                     lot.getQuantity(), lot.getRemainingQuantity(), lot.getBuyPrice(), lot.getBuyDate(),
                     currentPrice, unrealizedGain, unrealizedGainPct, lot.getStatus().name()
             );

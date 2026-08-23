@@ -158,6 +158,17 @@ CREATE TABLE business_scores (
 );
 
 -- ==========================================================
+-- USER NOTES (freeform personal notes, not tied to any stock)
+-- ==========================================================
+CREATE TABLE user_notes (
+    id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id         BIGINT NOT NULL,
+    content         TEXT NOT NULL,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- ==========================================================
 -- SEED: default checklist items pulled straight from your notes
 -- ==========================================================
 INSERT INTO checklist_items (category, prompt, display_order) VALUES

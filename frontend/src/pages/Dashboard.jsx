@@ -1,16 +1,19 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { investments, stocks, exportApi } from '../api/api.js';
+import { formatMoney } from '../utils/currency.js';
 
 export default function Dashboard() {
   const [holdings, setHoldings] = useState([]);
   const [newTicker, setNewTicker] = useState('');
+  const [newCurrency, setNewCurrency] = useState('USD');
   const [qty, setQty] = useState('');
   const [price, setPrice] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshStatus, setRefreshStatus] = useState(null);
   const [buyError, setBuyError] = useState('');
   const [searchTicker, setSearchTicker] = useState('');
+  const [searchCurrency, setSearchCurrency] = useState('USD');
   const [sellingLotId, setSellingLotId] = useState(null);
   const [sellQty, setSellQty] = useState('');
   const [sellPrice, setSellPrice] = useState('');
@@ -30,7 +33,7 @@ export default function Dashboard() {
     setBuyError('');
     const ticker = newTicker.toUpperCase();
     try {
-      await stocks.add(ticker);
+      await stocks.add(ticker, newCurrency);
       const priceRes = await stocks.refreshPrice(ticker);
       if (priceRes.data?.error) {
         setBuyError(`Price fetch failed: ${priceRes.data.error} — you can still record the buy.`);
@@ -47,7 +50,7 @@ export default function Dashboard() {
     e.preventDefault();
     if (!searchTicker.trim()) return;
     const ticker = searchTicker.toUpperCase();
-    await stocks.add(ticker); // idempotent — ensures it exists before navigating
+    await stocks.add(ticker, searchCurrency); // idempotent — ensures it exists before navigating
     navigate(`/stock/${ticker}`);
   };
 
@@ -88,8 +91,12 @@ export default function Dashboard() {
     window.URL.revokeObjectURL(url);
   };
 
+  // Note: totals are summed per-holding's own currency, which is only meaningful if all your
+  // holdings share one currency. Mixed USD+INR portfolios will see a mixed total here — real
+  // multi-currency conversion needs a live FX rate feed, which isn't wired in yet.
   const totalValue = holdings.reduce((sum, h) => sum + (h.currentPrice ? h.currentPrice * h.remainingQuantity : 0), 0);
   const totalGain = holdings.reduce((sum, h) => sum + (h.unrealizedGain || 0), 0);
+  const mixedCurrencies = new Set(holdings.map((h) => h.currency)).size > 1;
 
   return (
     <div className="container">
@@ -104,20 +111,38 @@ export default function Dashboard() {
           <div style={{ color: '#94a3b8' }}>Unrealized gain</div>
           <h2 className={totalGain >= 0 ? 'positive' : 'negative'}>${totalGain.toFixed(2)}</h2>
         </div>
+        {mixedCurrencies && (
+          <div style={{ alignSelf: 'center', color: '#facc15', fontSize: 13 }}>
+            ⚠ Mixed currencies in holdings — total isn't converted, just summed as raw numbers.
+          </div>
+        )}
       </div>
 
       <div className="card">
         <h3>Search / add a stock</h3>
         <form onSubmit={goToStock} style={{ display: 'flex', gap: 10 }}>
-          <input placeholder="Ticker e.g. AAPL" value={searchTicker} onChange={(e) => setSearchTicker(e.target.value)} />
+          <input placeholder="Ticker e.g. AAPL or RELIANCE.BSE" value={searchTicker} onChange={(e) => setSearchTicker(e.target.value)} />
+          <select value={searchCurrency} onChange={(e) => setSearchCurrency(e.target.value)}>
+            <option value="USD">USD ($)</option>
+            <option value="INR">INR (₹)</option>
+          </select>
           <button type="submit">View Big Five &amp; Sticker Price</button>
         </form>
+        <p style={{ color: '#94a3b8', fontSize: 13, marginTop: 6 }}>
+          For Indian stocks, Alpha Vantage typically needs an exchange suffix like <code>.BSE</code>
+          (e.g. RELIANCE.BSE). Fundamentals usually aren't available via API for these — use manual
+          Big Five entry on the stock page instead.
+        </p>
       </div>
 
       <div className="card">
         <h3>Record a buy</h3>
         <form onSubmit={addBuy} style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <input placeholder="Ticker e.g. AAPL" value={newTicker} onChange={(e) => setNewTicker(e.target.value)} required />
+          <select value={newCurrency} onChange={(e) => setNewCurrency(e.target.value)}>
+            <option value="USD">USD ($)</option>
+            <option value="INR">INR (₹)</option>
+          </select>
           <input placeholder="Quantity" type="number" step="any" value={qty} onChange={(e) => setQty(e.target.value)} required />
           <input placeholder="Buy price" type="number" step="any" value={price} onChange={(e) => setPrice(e.target.value)} required />
           <button type="submit">Add position</button>
@@ -145,14 +170,14 @@ export default function Dashboard() {
                   <tr>
                     <td><Link to={`/stock/${h.ticker}`}>{h.ticker}</Link></td>
                     <td>{h.remainingQuantity}</td>
-                    <td>${Number(h.buyPrice).toFixed(2)}</td>
-                    <td>{h.currentPrice ? `$${Number(h.currentPrice).toFixed(2)}` : (
+                    <td>{formatMoney(h.buyPrice, h.currency)}</td>
+                    <td>{h.currentPrice ? formatMoney(h.currentPrice, h.currency) : (
                       <span style={{ color: '#94a3b8' }} title="Click 'Refresh all prices' above, or check the API key / rate limit">
                         unavailable
                       </span>
                     )}</td>
                     <td className={h.unrealizedGain >= 0 ? 'positive' : 'negative'}>
-                      {h.unrealizedGain != null ? `$${Number(h.unrealizedGain).toFixed(2)}` : '—'}
+                      {h.unrealizedGain != null ? formatMoney(h.unrealizedGain, h.currency) : '—'}
                     </td>
                     <td className={h.unrealizedGainPct >= 0 ? 'positive' : 'negative'}>
                       {h.unrealizedGainPct != null ? `${Number(h.unrealizedGainPct).toFixed(2)}%` : '—'}

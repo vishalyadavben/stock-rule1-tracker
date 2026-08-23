@@ -8,7 +8,7 @@ public class InvestmentDtos {
     public record SellRequest(Long lotId, BigDecimal quantity, BigDecimal sellPrice, LocalDateTime sellDate, String notes) {}
 
     public record HoldingView(
-            Long lotId, String ticker, String companyName,
+            Long lotId, String ticker, String companyName, String currency,
             BigDecimal quantity, BigDecimal remainingQuantity,
             BigDecimal buyPrice, LocalDateTime buyDate,
             BigDecimal currentPrice, BigDecimal unrealizedGain, BigDecimal unrealizedGainPct,
