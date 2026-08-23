@@ -1,16 +1,8 @@
--- ⚠️ SUPERSEDED — kept only for historical reference.
--- Schema changes are now managed by Flyway migrations in
--- backend/src/main/resources/db/migration/*.sql — that's the real source of truth.
--- This file is no longer run by docker-compose and should not be edited or re-run manually.
+-- Flyway migration V1: original schema.
+-- Flyway runs this against whatever database the JDBC URL already points to (created via
+-- MYSQL_DATABASE in docker-compose, or manually on a hosted DB) — no CREATE DATABASE/USE
+-- needed here, unlike the old schema.sql.
 
--- Rule #1 Investing Tracker — MySQL schema (original, pre-Flyway)
-
-CREATE DATABASE IF NOT EXISTS rule1_tracker;
-USE rule1_tracker;
-
--- ==========================================================
--- USERS
--- ==========================================================
 CREATE TABLE users (
     id              BIGINT AUTO_INCREMENT PRIMARY KEY,
     email           VARCHAR(255) NOT NULL UNIQUE,
@@ -19,9 +11,6 @@ CREATE TABLE users (
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- ==========================================================
--- STOCKS (master list of tickers, shared across all users)
--- ==========================================================
 CREATE TABLE stocks (
     id              BIGINT AUTO_INCREMENT PRIMARY KEY,
     ticker          VARCHAR(20) NOT NULL UNIQUE,
@@ -34,9 +23,6 @@ CREATE TABLE stocks (
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- ==========================================================
--- WATCHLIST (stocks a user is tracking, invested or not)
--- ==========================================================
 CREATE TABLE watchlist_items (
     id              BIGINT AUTO_INCREMENT PRIMARY KEY,
     user_id         BIGINT NOT NULL,
@@ -48,11 +34,6 @@ CREATE TABLE watchlist_items (
     UNIQUE KEY uq_user_stock (user_id, stock_id)
 );
 
--- ==========================================================
--- INVESTMENTS / LOTS
--- Every buy is a "lot". A lot can later be (partially) sold.
--- Full history preserved even after exit — nothing is deleted.
--- ==========================================================
 CREATE TABLE investment_lots (
     id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
     user_id             BIGINT NOT NULL,
@@ -67,24 +48,19 @@ CREATE TABLE investment_lots (
     FOREIGN KEY (stock_id) REFERENCES stocks(id) ON DELETE CASCADE
 );
 
--- Every sell (full or partial exit) — this is your "history after exit"
 CREATE TABLE investment_exits (
     id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
     lot_id              BIGINT NOT NULL,
     quantity_sold       DECIMAL(18,6) NOT NULL,
     sell_price          DECIMAL(18,4) NOT NULL,
     sell_date           DATETIME NOT NULL,
-    realized_gain       DECIMAL(18,4),        -- computed at insert time
+    realized_gain       DECIMAL(18,4),
     realized_gain_pct   DECIMAL(9,4),
     notes               TEXT,
     created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (lot_id) REFERENCES investment_lots(id) ON DELETE CASCADE
 );
 
--- ==========================================================
--- BIG FIVE METRICS (fetched via API OR manually entered)
--- One row per stock per fiscal year, per source
--- ==========================================================
 CREATE TABLE big_five_metrics (
     id              BIGINT AUTO_INCREMENT PRIMARY KEY,
     stock_id        BIGINT NOT NULL,
@@ -102,18 +78,13 @@ CREATE TABLE big_five_metrics (
     UNIQUE KEY uq_stock_year_source (stock_id, fiscal_year, source)
 );
 
--- ==========================================================
--- CHECKLIST (the qualitative Four-Ms items from the notes)
--- Master list of checklist questions (seeded, editable)
--- ==========================================================
 CREATE TABLE checklist_items (
     id              BIGINT AUTO_INCREMENT PRIMARY KEY,
-    category        VARCHAR(50) NOT NULL,   -- MEANING, MOAT, MANAGEMENT, MARGIN_OF_SAFETY
+    category        VARCHAR(50) NOT NULL,
     prompt          TEXT NOT NULL,
     display_order   INT DEFAULT 0
 );
 
--- Per-user, per-stock answers to the checklist
 CREATE TABLE checklist_responses (
     id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
     user_id             BIGINT NOT NULL,
@@ -128,9 +99,6 @@ CREATE TABLE checklist_responses (
     UNIQUE KEY uq_user_stock_item (user_id, stock_id, checklist_item_id)
 );
 
--- ==========================================================
--- STICKER PRICE CALCULATIONS (snapshot each time it's calculated)
--- ==========================================================
 CREATE TABLE sticker_price_calcs (
     id                      BIGINT AUTO_INCREMENT PRIMARY KEY,
     user_id                 BIGINT NOT NULL,
@@ -142,40 +110,23 @@ CREATE TABLE sticker_price_calcs (
     future_eps_10y          DECIMAL(12,4),
     future_price            DECIMAL(18,4),
     sticker_price            DECIMAL(18,4),
-    margin_of_safety_price  DECIMAL(18,4),   -- 50% of sticker price by default
+    margin_of_safety_price  DECIMAL(18,4),
     calculated_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (stock_id) REFERENCES stocks(id) ON DELETE CASCADE
 );
 
--- ==========================================================
--- OVERALL SCORE (1-10 rating combining checklist + Big Five pass/fail)
--- ==========================================================
 CREATE TABLE business_scores (
     id              BIGINT AUTO_INCREMENT PRIMARY KEY,
     user_id         BIGINT NOT NULL,
     stock_id        BIGINT NOT NULL,
-    score           DECIMAL(3,1) NOT NULL,   -- 1.0 - 10.0
-    breakdown_json  JSON,                    -- stores component scores for transparency
+    score           DECIMAL(3,1) NOT NULL,
+    breakdown_json  JSON,
     calculated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (stock_id) REFERENCES stocks(id) ON DELETE CASCADE
 );
 
--- ==========================================================
--- USER NOTES (freeform personal notes, not tied to any stock)
--- ==========================================================
-CREATE TABLE user_notes (
-    id              BIGINT AUTO_INCREMENT PRIMARY KEY,
-    user_id         BIGINT NOT NULL,
-    content         TEXT NOT NULL,
-    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-
--- ==========================================================
--- SEED: default checklist items pulled straight from your notes
--- ==========================================================
 INSERT INTO checklist_items (category, prompt, display_order) VALUES
 ('MEANING', 'Would I be willing to make this business the sole financial support of my family for 100 years?', 1),
 ('MEANING', 'Do I want to own the whole business (not just trade the stock)?', 2),
