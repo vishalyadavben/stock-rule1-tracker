@@ -122,6 +122,35 @@ public class CalculationService {
         return estimatedGrowthPct.multiply(BigDecimal.valueOf(2));
     }
 
+    /**
+     * Auto-fills the Sticker Price inputs straight from a stock's Big Five history, per the
+     * book's method: use the latest EPS as the current EPS, and prioritize historical EQUITY
+     * growth (not EPS growth) as the growth-rate estimate — falling back to the 5-yr window,
+     * then a conservative 10% default, if 10-yr data isn't available. Future PE defaults to
+     * 2x that growth rate. The result is a starting point the user can still edit before
+     * calculating — never submitted automatically without their review.
+     */
+    public StickerSuggestion suggestStickerInputs(List<BigFiveMetric> yearlySorted) {
+        if (yearlySorted == null || yearlySorted.isEmpty()) return null;
+        BigFiveMetric latest = yearlySorted.get(yearlySorted.size() - 1);
+        if (latest.getEps() == null) return null;
+
+        Map<String, BigDecimal> equityRates = computeGrowthRates(yearlySorted, "equity");
+        BigDecimal growth = equityRates.get("10yr");
+        if (growth == null) growth = equityRates.get("5yr");
+        if (growth == null) growth = new BigDecimal("10.00"); // conservative default, per the book's spirit
+
+        BigDecimal futurePe = defaultFuturePe(growth);
+
+        return new StickerSuggestion(latest.getEps(), growth, futurePe);
+    }
+
+    public record StickerSuggestion(
+            BigDecimal currentEps,
+            BigDecimal estimatedGrowthPct,
+            BigDecimal estimatedFuturePe
+    ) {}
+
     private BigDecimal round(double v) {
         return BigDecimal.valueOf(v).setScale(2, RoundingMode.HALF_UP);
     }

@@ -33,14 +33,39 @@ public class StockDataService {
     @Value("${stock-api.base-url}")
     private String baseUrl;
 
-    /** Real-time (delayed ~15min on free tier) quote. */
+    /**
+     * Real-time (delayed ~15min on free tier) quote.
+     * Throws StockApiException with a specific, useful message instead of silently returning
+     * null — Alpha Vantage returns HTTP 200 even when it's rejecting the request (rate limit,
+     * bad key, unrecognized ticker), just with a different JSON shape, so we have to inspect
+     * the body to know whether it actually worked.
+     */
     public BigDecimal fetchLatestPrice(String ticker) {
         String url = String.format("%s/query?function=GLOBAL_QUOTE&symbol=%s&apikey=%s", baseUrl, ticker, apiKey);
-        JsonNode root = restTemplate.getForObject(url, JsonNode.class);
-        if (root == null) return null;
+        JsonNode root;
+        try {
+            root = restTemplate.getForObject(url, JsonNode.class);
+        } catch (Exception e) {
+            throw new StockApiException("Could not reach Alpha Vantage: " + e.getMessage());
+        }
+        if (root == null) {
+            throw new StockApiException("Alpha Vantage returned an empty response for " + ticker);
+        }
+        if (root.has("Note")) {
+            throw new StockApiException("Alpha Vantage rate limit hit: " + root.get("Note").asText());
+        }
+        if (root.has("Information")) {
+            // This is what you get back for an invalid/demo key or a malformed request —
+            // commonly mistaken for "the ticker doesn't exist".
+            throw new StockApiException("Alpha Vantage rejected the request: " + root.get("Information").asText());
+        }
         JsonNode quote = root.path("Global Quote");
         String priceStr = quote.path("05. price").asText(null);
-        return priceStr == null ? null : new BigDecimal(priceStr);
+        if (priceStr == null || priceStr.isBlank()) {
+            throw new StockApiException(
+                    "No quote data returned for " + ticker + ". Raw response: " + root);
+        }
+        return new BigDecimal(priceStr);
     }
 
     /**
@@ -115,8 +140,22 @@ public class StockDataService {
 
     private JsonNode callFunction(String function, String ticker) {
         String url = String.format("%s/query?function=%s&symbol=%s&apikey=%s", baseUrl, function, ticker, apiKey);
-        JsonNode result = restTemplate.getForObject(url, JsonNode.class);
-        return result == null ? mapper.createObjectNode() : result;
+        JsonNode result;
+        try {
+            result = restTemplate.getForObject(url, JsonNode.class);
+        } catch (Exception e) {
+            throw new StockApiException("Could not reach Alpha Vantage for " + function + ": " + e.getMessage());
+        }
+        if (result == null) return mapper.createObjectNode();
+        if (result.has("Note")) {
+            throw new StockApiException("Alpha Vantage rate limit hit while fetching " + function + ": "
+                    + result.get("Note").asText());
+        }
+        if (result.has("Information")) {
+            throw new StockApiException("Alpha Vantage rejected " + function + " request: "
+                    + result.get("Information").asText());
+        }
+        return result;
     }
 
     private BigDecimal decOrNull(JsonNode node, String field) {

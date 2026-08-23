@@ -4,12 +4,14 @@ import com.rule1.tracker.entity.BigFiveMetric;
 import com.rule1.tracker.entity.Stock;
 import com.rule1.tracker.repository.BigFiveMetricRepository;
 import com.rule1.tracker.repository.StockRepository;
+import com.rule1.tracker.service.StockApiException;
 import com.rule1.tracker.service.StockDataService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/stocks")
@@ -46,27 +48,45 @@ public class StockController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    /** Pulls latest price from the market data API and updates the stock row. */
+    /** Pulls latest price from the market data API and updates the stock row.
+     *  Returns 502 with a specific error message (instead of silently succeeding with no
+     *  price) if Alpha Vantage rejects the request — see StockDataService for why that
+     *  distinction matters. */
     @PostMapping("/{ticker}/refresh-price")
-    public ResponseEntity<Stock> refreshPrice(@PathVariable String ticker) {
+    public ResponseEntity<?> refreshPrice(@PathVariable String ticker) {
         Stock stock = stockRepository.findByTicker(ticker.toUpperCase())
                 .orElseThrow(() -> new RuntimeException("Stock not found — add it first"));
-        var price = stockDataService.fetchLatestPrice(ticker.toUpperCase());
-        if (price != null) {
+        try {
+            var price = stockDataService.fetchLatestPrice(ticker.toUpperCase());
             stock.setLastPrice(price);
             stock.setLastPriceAt(LocalDateTime.now());
             stockRepository.save(stock);
+            return ResponseEntity.ok(stock);
+        } catch (StockApiException e) {
+            return ResponseEntity.status(502).body(Map.of("error", e.getMessage()));
         }
-        return ResponseEntity.ok(stock);
     }
 
     /** Pulls the Big Five fundamentals history from the API and stores/updates them. */
     @PostMapping("/{ticker}/refresh-big-five")
-    public ResponseEntity<List<BigFiveMetric>> refreshBigFive(@PathVariable String ticker) {
+    public ResponseEntity<?> refreshBigFive(@PathVariable String ticker) {
         Stock stock = stockRepository.findByTicker(ticker.toUpperCase())
                 .orElseThrow(() -> new RuntimeException("Stock not found — add it first"));
 
-        List<BigFiveMetric> fetched = stockDataService.fetchBigFiveHistory(ticker.toUpperCase());
+        List<BigFiveMetric> fetched;
+        try {
+            fetched = stockDataService.fetchBigFiveHistory(ticker.toUpperCase());
+        } catch (StockApiException e) {
+            return ResponseEntity.status(502).body(Map.of("error", e.getMessage()));
+        }
+
+        if (fetched.isEmpty()) {
+            return ResponseEntity.status(502).body(Map.of("error",
+                    "Alpha Vantage returned no fundamentals data for " + ticker
+                    + " — either the free tier doesn't cover this ticker's financial statements, "
+                    + "or the daily request limit (25/day) has been hit. Use manual entry instead."));
+        }
+
         for (BigFiveMetric m : fetched) {
             m.setStockId(stock.getId());
             // upsert: if a row for this stock+year+API already exists, this will violate the
@@ -74,6 +94,16 @@ public class StockController {
             bigFiveMetricRepository.save(m);
         }
         return ResponseEntity.ok(fetched);
+    }
+
+    /** Big Five history filtered to a single source (API or MANUAL) — powers the source
+     *  toggle in the sticker price calculator and the chart. */
+    @GetMapping("/{ticker}/big-five/{source}")
+    public ResponseEntity<List<BigFiveMetric>> getBigFiveBySource(@PathVariable String ticker, @PathVariable String source) {
+        Stock stock = stockRepository.findByTicker(ticker.toUpperCase())
+                .orElseThrow(() -> new RuntimeException("Stock not found"));
+        BigFiveMetric.Source src = BigFiveMetric.Source.valueOf(source.toUpperCase());
+        return ResponseEntity.ok(bigFiveMetricRepository.findByStockIdAndSourceOrderByFiscalYearAsc(stock.getId(), src));
     }
 
     /** Manual entry / override of a single year's Big Five numbers. */

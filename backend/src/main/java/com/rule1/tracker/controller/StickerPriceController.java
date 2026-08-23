@@ -1,7 +1,9 @@
 package com.rule1.tracker.controller;
 
+import com.rule1.tracker.entity.BigFiveMetric;
 import com.rule1.tracker.entity.Stock;
 import com.rule1.tracker.entity.StickerPriceCalc;
+import com.rule1.tracker.repository.BigFiveMetricRepository;
 import com.rule1.tracker.repository.StickerPriceCalcRepository;
 import com.rule1.tracker.repository.StockRepository;
 import com.rule1.tracker.security.CurrentUser;
@@ -20,12 +22,39 @@ public class StickerPriceController {
     private final CalculationService calculationService;
     private final StickerPriceCalcRepository repository;
     private final StockRepository stockRepository;
+    private final BigFiveMetricRepository bigFiveMetricRepository;
 
     public StickerPriceController(CalculationService calculationService, StickerPriceCalcRepository repository,
-                                   StockRepository stockRepository) {
+                                   StockRepository stockRepository, BigFiveMetricRepository bigFiveMetricRepository) {
         this.calculationService = calculationService;
         this.repository = repository;
         this.stockRepository = stockRepository;
+        this.bigFiveMetricRepository = bigFiveMetricRepository;
+    }
+
+    /**
+     * Enhancement: auto-fill Sticker Price inputs from Big Five history, choosing which data
+     * source to trust — API-fetched or manually entered — via the `source` query param.
+     * This is the "two options" toggle: call this to pre-fill the form, or skip it entirely
+     * and type every field manually (the /calculate endpoint below never requires this).
+     */
+    @GetMapping("/suggest/{ticker}")
+    public ResponseEntity<?> suggest(@PathVariable String ticker, @RequestParam(defaultValue = "API") String source) {
+        Stock stock = stockRepository.findByTicker(ticker.toUpperCase())
+                .orElseThrow(() -> new RuntimeException("Stock not found — add it first"));
+        BigFiveMetric.Source src;
+        try {
+            src = BigFiveMetric.Source.valueOf(source.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body("source must be API or MANUAL");
+        }
+        List<BigFiveMetric> yearly = bigFiveMetricRepository.findByStockIdAndSourceOrderByFiscalYearAsc(stock.getId(), src);
+        var suggestion = calculationService.suggestStickerInputs(yearly);
+        if (suggestion == null) {
+            return ResponseEntity.status(404).body(
+                    "No " + src + " Big Five data found for " + ticker + " yet — fetch or enter it first.");
+        }
+        return ResponseEntity.ok(suggestion);
     }
 
     public record StickerPriceRequest(

@@ -3,35 +3,84 @@ import { useParams } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { stocks, checklist, stickerPrice, score } from '../api/api.js';
 
+const emptyManualForm = {
+  fiscalYear: new Date().getFullYear(), sales: '', eps: '', equity: '',
+  freeCashFlow: '', longTermDebt: '', sharesOut: '', roicPct: '',
+};
+
 export default function StockDetail() {
   const { ticker } = useParams();
+  const [bigFiveSource, setBigFiveSource] = useState('API'); // 'API' | 'MANUAL'
   const [bigFive, setBigFive] = useState([]);
+  const [bigFiveError, setBigFiveError] = useState('');
+  const [refreshingBigFive, setRefreshingBigFive] = useState(false);
+  const [manualForm, setManualForm] = useState(emptyManualForm);
   const [items, setItems] = useState([]);
   const [responses, setResponses] = useState({});
   const [businessScore, setBusinessScore] = useState(null);
   const [sp, setSp] = useState({ currentEps: '', estimatedGrowthPct: '', estimatedFuturePe: '', minAcceptableReturnPct: '15' });
   const [spResult, setSpResult] = useState(null);
+  const [spError, setSpError] = useState('');
+
+  const loadBigFive = async (source) => {
+    setBigFiveError('');
+    try {
+      const res = await stocks.getBigFiveBySource(ticker, source);
+      setBigFive(res.data);
+    } catch (err) {
+      setBigFiveError('Could not load Big Five data.');
+    }
+  };
 
   const loadAll = async () => {
-    const [bf, ci, cr, sc] = await Promise.all([
-      stocks.getBigFive(ticker),
+    const [ci, cr, sc] = await Promise.all([
       checklist.items(),
       checklist.responses(ticker),
       score.get(ticker).catch(() => null),
     ]);
-    setBigFive(bf.data);
     setItems(ci.data);
     const respMap = {};
     cr.data.forEach((r) => { respMap[r.checklistItemId] = r; });
     setResponses(respMap);
     setBusinessScore(sc?.data || null);
+    loadBigFive(bigFiveSource);
   };
 
   useEffect(() => { loadAll(); }, [ticker]);
+  useEffect(() => { loadBigFive(bigFiveSource); }, [bigFiveSource]);
 
   const refreshBigFive = async () => {
-    await stocks.refreshBigFive(ticker);
-    loadAll();
+    setRefreshingBigFive(true);
+    setBigFiveError('');
+    try {
+      const res = await stocks.refreshBigFive(ticker);
+      if (res.data?.error) {
+        setBigFiveError(res.data.error);
+      } else {
+        setBigFiveSource('API');
+        loadBigFive('API');
+      }
+    } catch (err) {
+      setBigFiveError(err.response?.data?.error || 'Refresh failed.');
+    }
+    setRefreshingBigFive(false);
+  };
+
+  const submitManual = async (e) => {
+    e.preventDefault();
+    await stocks.saveManualBigFive(ticker, {
+      fiscalYear: Number(manualForm.fiscalYear),
+      sales: manualForm.sales === '' ? null : Number(manualForm.sales),
+      eps: manualForm.eps === '' ? null : Number(manualForm.eps),
+      equity: manualForm.equity === '' ? null : Number(manualForm.equity),
+      freeCashFlow: manualForm.freeCashFlow === '' ? null : Number(manualForm.freeCashFlow),
+      longTermDebt: manualForm.longTermDebt === '' ? null : Number(manualForm.longTermDebt),
+      sharesOut: manualForm.sharesOut === '' ? null : Number(manualForm.sharesOut),
+      roicPct: manualForm.roicPct === '' ? null : Number(manualForm.roicPct),
+    });
+    setManualForm(emptyManualForm);
+    setBigFiveSource('MANUAL');
+    loadBigFive('MANUAL');
   };
 
   const toggleCheck = async (itemId) => {
@@ -48,8 +97,24 @@ export default function StockDetail() {
     await checklist.save(ticker, { checklistItemId: itemId, isChecked: responses[itemId]?.isChecked || false, freeText: text });
   };
 
+  const autoFillFromBigFive = async () => {
+    setSpError('');
+    try {
+      const res = await stickerPrice.suggest(ticker, bigFiveSource);
+      setSp((prev) => ({
+        ...prev,
+        currentEps: res.data.currentEps,
+        estimatedGrowthPct: res.data.estimatedGrowthPct,
+        estimatedFuturePe: res.data.estimatedFuturePe,
+      }));
+    } catch (err) {
+      setSpError(err.response?.data || `No ${bigFiveSource} Big Five data available to auto-fill from yet.`);
+    }
+  };
+
   const calcSticker = async (e) => {
     e.preventDefault();
+    setSpError('');
     const res = await stickerPrice.calculate({
       ticker,
       currentEps: Number(sp.currentEps),
@@ -76,12 +141,23 @@ export default function StockDetail() {
       <h1>{ticker}</h1>
 
       <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h3>Big Five metrics (10-yr history)</h3>
-          <button onClick={refreshBigFive}>Refresh from API</button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+          <h3>Big Five metrics</h3>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <select value={bigFiveSource} onChange={(e) => setBigFiveSource(e.target.value)}>
+              <option value="API">API-fetched data</option>
+              <option value="MANUAL">Manually entered data</option>
+            </select>
+            <button onClick={refreshBigFive} disabled={refreshingBigFive}>
+              {refreshingBigFive ? 'Refreshing…' : 'Refresh from API'}
+            </button>
+          </div>
         </div>
+
+        {bigFiveError && <p className="negative" style={{ marginTop: 10 }}>{bigFiveError}</p>}
+
         {chartData.length === 0 ? (
-          <p>No data yet — click "Refresh from API" or add manual entries via the API.</p>
+          <p>No {bigFiveSource === 'API' ? 'API-fetched' : 'manually entered'} data yet.</p>
         ) : (
           <ResponsiveContainer width="100%" height={320}>
             <LineChart data={chartData}>
@@ -98,10 +174,42 @@ export default function StockDetail() {
             </LineChart>
           </ResponsiveContainer>
         )}
+
+        <details style={{ marginTop: 16 }}>
+          <summary style={{ cursor: 'pointer', color: '#60a5fa' }}>Enter a year's Big Five manually</summary>
+          <form onSubmit={submitManual} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12 }}>
+            <input placeholder="Fiscal year" type="number" value={manualForm.fiscalYear}
+                   onChange={(e) => setManualForm({ ...manualForm, fiscalYear: e.target.value })} required style={{ width: 110 }} />
+            <input placeholder="Sales" type="number" step="any" value={manualForm.sales}
+                   onChange={(e) => setManualForm({ ...manualForm, sales: e.target.value })} />
+            <input placeholder="EPS" type="number" step="any" value={manualForm.eps}
+                   onChange={(e) => setManualForm({ ...manualForm, eps: e.target.value })} />
+            <input placeholder="Equity" type="number" step="any" value={manualForm.equity}
+                   onChange={(e) => setManualForm({ ...manualForm, equity: e.target.value })} />
+            <input placeholder="Free cash flow" type="number" step="any" value={manualForm.freeCashFlow}
+                   onChange={(e) => setManualForm({ ...manualForm, freeCashFlow: e.target.value })} />
+            <input placeholder="Long-term debt" type="number" step="any" value={manualForm.longTermDebt}
+                   onChange={(e) => setManualForm({ ...manualForm, longTermDebt: e.target.value })} />
+            <input placeholder="Shares outstanding" type="number" step="any" value={manualForm.sharesOut}
+                   onChange={(e) => setManualForm({ ...manualForm, sharesOut: e.target.value })} />
+            <input placeholder="ROIC %" type="number" step="any" value={manualForm.roicPct}
+                   onChange={(e) => setManualForm({ ...manualForm, roicPct: e.target.value })} />
+            <button type="submit">Save year</button>
+          </form>
+        </details>
       </div>
 
       <div className="card">
         <h3>Sticker Price calculator</h3>
+        <div style={{ marginBottom: 12 }}>
+          <button onClick={autoFillFromBigFive}>
+            Auto-fill from {bigFiveSource === 'API' ? 'API-fetched' : 'manually entered'} Big Five
+          </button>
+          <span style={{ marginLeft: 10, color: '#94a3b8', fontSize: 13 }}>
+            (or just type your own numbers below — auto-fill is optional)
+          </span>
+        </div>
+        {spError && <p className="negative">{String(spError)}</p>}
         <form onSubmit={calcSticker} style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <input placeholder="Current EPS" type="number" step="any" value={sp.currentEps}
                  onChange={(e) => setSp({ ...sp, currentEps: e.target.value })} required />

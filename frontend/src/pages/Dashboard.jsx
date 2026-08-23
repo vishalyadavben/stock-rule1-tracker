@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { investments, stocks } from '../api/api.js';
+import { Link, useNavigate } from 'react-router-dom';
+import { investments, stocks, exportApi } from '../api/api.js';
 
 export default function Dashboard() {
   const [holdings, setHoldings] = useState([]);
@@ -8,6 +8,13 @@ export default function Dashboard() {
   const [qty, setQty] = useState('');
   const [price, setPrice] = useState('');
   const [loading, setLoading] = useState(true);
+  const [refreshStatus, setRefreshStatus] = useState(null);
+  const [buyError, setBuyError] = useState('');
+  const [searchTicker, setSearchTicker] = useState('');
+  const [sellingLotId, setSellingLotId] = useState(null);
+  const [sellQty, setSellQty] = useState('');
+  const [sellPrice, setSellPrice] = useState('');
+  const navigate = useNavigate();
 
   const load = async () => {
     setLoading(true);
@@ -20,12 +27,65 @@ export default function Dashboard() {
 
   const addBuy = async (e) => {
     e.preventDefault();
+    setBuyError('');
     const ticker = newTicker.toUpperCase();
-    await stocks.add(ticker);              // ensure stock exists in master list
-    await stocks.refreshPrice(ticker);      // pull current price immediately
-    await investments.buy({ ticker, quantity: Number(qty), buyPrice: Number(price), buyDate: null });
-    setNewTicker(''); setQty(''); setPrice('');
+    try {
+      await stocks.add(ticker);
+      const priceRes = await stocks.refreshPrice(ticker);
+      if (priceRes.data?.error) {
+        setBuyError(`Price fetch failed: ${priceRes.data.error} — you can still record the buy.`);
+      }
+      await investments.buy({ ticker, quantity: Number(qty), buyPrice: Number(price), buyDate: null });
+      setNewTicker(''); setQty(''); setPrice('');
+      load();
+    } catch (err) {
+      setBuyError(err.response?.data?.error || err.response?.data || 'Something went wrong recording the buy.');
+    }
+  };
+
+  const goToStock = async (e) => {
+    e.preventDefault();
+    if (!searchTicker.trim()) return;
+    const ticker = searchTicker.toUpperCase();
+    await stocks.add(ticker); // idempotent — ensures it exists before navigating
+    navigate(`/stock/${ticker}`);
+  };
+
+  const refreshAll = async () => {
+    setRefreshStatus('Refreshing…');
+    const res = await investments.refreshPrices();
+    const failures = Object.entries(res.data).filter(([, v]) => v !== 'ok');
+    setRefreshStatus(failures.length === 0
+      ? 'All prices refreshed.'
+      : `Some tickers failed: ${failures.map(([t, e]) => `${t} (${e})`).join('; ')}`);
     load();
+  };
+
+  const openSell = (lotId) => {
+    setSellingLotId(lotId);
+    setSellQty('');
+    setSellPrice('');
+  };
+
+  const submitSell = async (e, lotId) => {
+    e.preventDefault();
+    await investments.sell({
+      lotId, quantity: Number(sellQty), sellPrice: Number(sellPrice), sellDate: null, notes: '',
+    });
+    setSellingLotId(null);
+    load();
+  };
+
+  const downloadCsv = async () => {
+    const res = await exportApi.csv();
+    const url = window.URL.createObjectURL(new Blob([res.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'rule1-tracker-export.csv');
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
   };
 
   const totalValue = holdings.reduce((sum, h) => sum + (h.currentPrice ? h.currentPrice * h.remainingQuantity : 0), 0);
@@ -33,7 +93,10 @@ export default function Dashboard() {
 
   return (
     <div className="container">
-      <h1>Portfolio</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h1>Portfolio</h1>
+        <button onClick={downloadCsv}>Download CSV</button>
+      </div>
 
       <div className="card" style={{ display: 'flex', gap: 24 }}>
         <div><div style={{ color: '#94a3b8' }}>Total value</div><h2>${totalValue.toFixed(2)}</h2></div>
@@ -44,6 +107,14 @@ export default function Dashboard() {
       </div>
 
       <div className="card">
+        <h3>Search / add a stock</h3>
+        <form onSubmit={goToStock} style={{ display: 'flex', gap: 10 }}>
+          <input placeholder="Ticker e.g. AAPL" value={searchTicker} onChange={(e) => setSearchTicker(e.target.value)} />
+          <button type="submit">View Big Five &amp; Sticker Price</button>
+        </form>
+      </div>
+
+      <div className="card">
         <h3>Record a buy</h3>
         <form onSubmit={addBuy} style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <input placeholder="Ticker e.g. AAPL" value={newTicker} onChange={(e) => setNewTicker(e.target.value)} required />
@@ -51,33 +122,59 @@ export default function Dashboard() {
           <input placeholder="Buy price" type="number" step="any" value={price} onChange={(e) => setPrice(e.target.value)} required />
           <button type="submit">Add position</button>
         </form>
+        {buyError && <p className="negative" style={{ marginTop: 10 }}>{buyError}</p>}
       </div>
 
       <div className="card">
-        <h3>Active holdings</h3>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h3>Active holdings</h3>
+          <button onClick={refreshAll}>Refresh all prices</button>
+        </div>
+        {refreshStatus && <p style={{ color: '#94a3b8', fontSize: 13 }}>{refreshStatus}</p>}
         {loading ? <p>Loading…</p> : holdings.length === 0 ? <p>No active positions yet.</p> : (
           <table>
             <thead>
               <tr>
                 <th>Ticker</th><th>Qty</th><th>Buy price</th><th>Current price</th>
-                <th>Unrealized gain</th><th>%</th><th></th>
+                <th>Unrealized gain</th><th>%</th><th></th><th></th>
               </tr>
             </thead>
             <tbody>
               {holdings.map((h) => (
-                <tr key={h.lotId}>
-                  <td><Link to={`/stock/${h.ticker}`}>{h.ticker}</Link></td>
-                  <td>{h.remainingQuantity}</td>
-                  <td>${Number(h.buyPrice).toFixed(2)}</td>
-                  <td>{h.currentPrice ? `$${Number(h.currentPrice).toFixed(2)}` : '—'}</td>
-                  <td className={h.unrealizedGain >= 0 ? 'positive' : 'negative'}>
-                    {h.unrealizedGain != null ? `$${Number(h.unrealizedGain).toFixed(2)}` : '—'}
-                  </td>
-                  <td className={h.unrealizedGainPct >= 0 ? 'positive' : 'negative'}>
-                    {h.unrealizedGainPct != null ? `${Number(h.unrealizedGainPct).toFixed(2)}%` : '—'}
-                  </td>
-                  <td><span className="badge pass">{h.status}</span></td>
-                </tr>
+                <React.Fragment key={h.lotId}>
+                  <tr>
+                    <td><Link to={`/stock/${h.ticker}`}>{h.ticker}</Link></td>
+                    <td>{h.remainingQuantity}</td>
+                    <td>${Number(h.buyPrice).toFixed(2)}</td>
+                    <td>{h.currentPrice ? `$${Number(h.currentPrice).toFixed(2)}` : (
+                      <span style={{ color: '#94a3b8' }} title="Click 'Refresh all prices' above, or check the API key / rate limit">
+                        unavailable
+                      </span>
+                    )}</td>
+                    <td className={h.unrealizedGain >= 0 ? 'positive' : 'negative'}>
+                      {h.unrealizedGain != null ? `$${Number(h.unrealizedGain).toFixed(2)}` : '—'}
+                    </td>
+                    <td className={h.unrealizedGainPct >= 0 ? 'positive' : 'negative'}>
+                      {h.unrealizedGainPct != null ? `${Number(h.unrealizedGainPct).toFixed(2)}%` : '—'}
+                    </td>
+                    <td><span className="badge pass">{h.status}</span></td>
+                    <td><button onClick={() => openSell(h.lotId)}>Sell</button></td>
+                  </tr>
+                  {sellingLotId === h.lotId && (
+                    <tr>
+                      <td colSpan={8}>
+                        <form onSubmit={(e) => submitSell(e, h.lotId)} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                          <input placeholder="Quantity to sell" type="number" step="any" max={h.remainingQuantity}
+                                 value={sellQty} onChange={(e) => setSellQty(e.target.value)} required />
+                          <input placeholder="Sell price" type="number" step="any"
+                                 value={sellPrice} onChange={(e) => setSellPrice(e.target.value)} required />
+                          <button type="submit">Confirm sell</button>
+                          <button type="button" onClick={() => setSellingLotId(null)}>Cancel</button>
+                        </form>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
               ))}
             </tbody>
           </table>

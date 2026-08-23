@@ -8,11 +8,14 @@ import com.rule1.tracker.repository.InvestmentLotRepository;
 import com.rule1.tracker.repository.StockRepository;
 import com.rule1.tracker.security.CurrentUser;
 import com.rule1.tracker.service.InvestmentService;
+import com.rule1.tracker.service.StockApiException;
+import com.rule1.tracker.service.StockDataService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -23,12 +26,40 @@ public class InvestmentController {
     private final InvestmentService investmentService;
     private final StockRepository stockRepository;
     private final InvestmentLotRepository lotRepository;
+    private final StockDataService stockDataService;
 
     public InvestmentController(InvestmentService investmentService, StockRepository stockRepository,
-                                 InvestmentLotRepository lotRepository) {
+                                 InvestmentLotRepository lotRepository, StockDataService stockDataService) {
         this.investmentService = investmentService;
         this.stockRepository = stockRepository;
         this.lotRepository = lotRepository;
+        this.stockDataService = stockDataService;
+    }
+
+    /** Refreshes last_price for every stock the user currently holds, in one click.
+     *  Returns per-ticker success/failure so a single rate-limited ticker doesn't hide
+     *  the fact that others succeeded. */
+    @PostMapping("/refresh-prices")
+    public ResponseEntity<Map<String, String>> refreshPrices() {
+        Long userId = CurrentUser.id();
+        List<InvestmentLot> lots = investmentService.getActiveHoldings(userId);
+        List<Long> stockIds = lots.stream().map(InvestmentLot::getStockId).distinct().toList();
+
+        Map<String, String> results = new java.util.LinkedHashMap<>();
+        for (Long stockId : stockIds) {
+            Stock stock = stockRepository.findById(stockId).orElse(null);
+            if (stock == null) continue;
+            try {
+                var price = stockDataService.fetchLatestPrice(stock.getTicker());
+                stock.setLastPrice(price);
+                stock.setLastPriceAt(LocalDateTime.now());
+                stockRepository.save(stock);
+                results.put(stock.getTicker(), "ok");
+            } catch (StockApiException e) {
+                results.put(stock.getTicker(), "error: " + e.getMessage());
+            }
+        }
+        return ResponseEntity.ok(results);
     }
 
     @PostMapping("/buy")
