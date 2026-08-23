@@ -1,0 +1,21 @@
+# Backend
+target/
+*.class
+*.jar
+*.war
+.idea/
+*.iml
+.vscode/
+*.log
+
+# Frontend
+node_modules/
+dist/
+build/
+.env
+.env.local
+
+# General
+.DS_Store
+*.swp
+*.swo
