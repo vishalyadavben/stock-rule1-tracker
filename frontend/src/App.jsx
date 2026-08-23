@@ -6,6 +6,7 @@ import StockDetail from './pages/StockDetail.jsx';
 import History from './pages/History.jsx';
 import Learn from './pages/Learn.jsx';
 import Notes from './pages/Notes.jsx';
+import MyCompanies from './pages/MyCompanies.jsx';
 
 function isAuthed() {
   return !!localStorage.getItem('token');
@@ -23,8 +24,9 @@ function NavBar() {
   };
   if (!isAuthed()) return null;
   return (
-    <div style={{ display: 'flex', gap: 16, padding: '16px 24px', borderBottom: '1px solid #334155' }}>
+    <div style={{ display: 'flex', gap: 16, padding: '16px 24px', borderBottom: '1px solid #334155', flexWrap: 'wrap' }}>
       <Link to="/">Dashboard</Link>
+      <Link to="/companies">My Companies</Link>
       <Link to="/history">History</Link>
       <Link to="/notes">My Notes</Link>
       <Link to="/learn">Learn (Rule #1)</Link>
@@ -43,6 +45,7 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
         <Route path="/stock/:ticker" element={<PrivateRoute><StockDetail /></PrivateRoute>} />
+        <Route path="/companies" element={<PrivateRoute><MyCompanies /></PrivateRoute>} />
         <Route path="/history" element={<PrivateRoute><History /></PrivateRoute>} />
         <Route path="/notes" element={<PrivateRoute><Notes /></PrivateRoute>} />
         <Route path="/learn" element={<PrivateRoute><Learn /></PrivateRoute>} />

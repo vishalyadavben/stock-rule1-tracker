@@ -19,12 +19,13 @@ export const stocks = {
   add: (ticker, currency) => api.post(`/stocks/${ticker}`, null, { params: currency ? { currency } : {} }),
   get: (ticker) => api.get(`/stocks/${ticker}`),
   refreshPrice: (ticker) => api.post(`/stocks/${ticker}/refresh-price`),
+  setManualPrice: (ticker, price) => api.post(`/stocks/${ticker}/manual-price`, { price }),
   refreshBigFive: (ticker) => api.post(`/stocks/${ticker}/refresh-big-five`),
   saveManualBigFive: (ticker, data) => api.post(`/stocks/${ticker}/big-five/manual`, data),
   getBigFive: (ticker) => api.get(`/stocks/${ticker}/big-five`),
   getBigFiveBySource: (ticker, source) => api.get(`/stocks/${ticker}/big-five/${source}`),
   deleteBigFiveYear: (ticker, source, fiscalYear) => api.delete(`/stocks/${ticker}/big-five/${source}/${fiscalYear}`),
-  growthRates: (ticker, source) => api.get(`/stocks/${ticker}/growth-rates?source=${source}`),
+  growthRates: (ticker, source, years) => api.get(`/stocks/${ticker}/growth-rates`, { params: { source, years } }),
 };
 
 export const investments = {

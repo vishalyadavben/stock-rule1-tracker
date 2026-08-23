@@ -39,21 +39,26 @@ public class CalculationService {
     }
 
     /**
-     * Given a sorted (oldest -> newest) list of yearly Big Five rows, compute the
-     * 10-yr / 5-yr / 1-yr growth rates for each metric, mirroring the book's
-     * recommendation to look at ROIC over three windows.
+     * Given a sorted (oldest -> newest) list of yearly Big Five rows, compute growth rates for
+     * each of the requested year windows (e.g. 10, 5, 3, 1) — any window the user wants to see,
+     * not just a fixed 10/5/1. Each window is computed independently: a value too short for a
+     * larger window (e.g. only 4 years of history) simply returns null for the windows it can't
+     * support, without blocking the ones it can.
      */
-    public Map<String, BigDecimal> computeGrowthRates(List<BigFiveMetric> yearlySorted, String field) {
+    public Map<String, BigDecimal> computeGrowthRates(List<BigFiveMetric> yearlySorted, String field, int... windows) {
         int n = yearlySorted.size();
         if (n < 2) return Map.of();
 
-        BigFiveMetric latest = yearlySorted.get(n - 1);
-        Map<String, BigDecimal> result = new java.util.HashMap<>();
-
-        result.put("10yr", growthFor(yearlySorted, field, Math.min(10, n - 1)));
-        result.put("5yr", growthFor(yearlySorted, field, Math.min(5, n - 1)));
-        result.put("1yr", growthFor(yearlySorted, field, 1));
+        Map<String, BigDecimal> result = new java.util.LinkedHashMap<>();
+        for (int window : windows) {
+            result.put(window + "yr", growthFor(yearlySorted, field, Math.min(window, n - 1)));
+        }
         return result;
+    }
+
+    /** Backward-compatible default: the original 10/5/1-year windows. */
+    public Map<String, BigDecimal> computeGrowthRates(List<BigFiveMetric> yearlySorted, String field) {
+        return computeGrowthRates(yearlySorted, field, 10, 5, 1);
     }
 
     private BigDecimal growthFor(List<BigFiveMetric> sorted, String field, int yearsBack) {

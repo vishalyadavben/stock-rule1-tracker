@@ -100,7 +100,8 @@ public class InvestmentController {
                     stock != null ? stock.getCompanyName() : null,
                     stock != null ? stock.getCurrency() : "USD",
                     lot.getQuantity(), lot.getRemainingQuantity(), lot.getBuyPrice(), lot.getBuyDate(),
-                    currentPrice, unrealizedGain, unrealizedGainPct, lot.getStatus().name()
+                    currentPrice, stock != null && stock.getPriceSource() != null ? stock.getPriceSource().name() : null,
+                    unrealizedGain, unrealizedGainPct, lot.getStatus().name()
             );
         }).toList();
 

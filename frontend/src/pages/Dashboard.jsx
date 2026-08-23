@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { investments, stocks, exportApi } from '../api/api.js';
+import { investments, stocks, watchlist, exportApi } from '../api/api.js';
 import { formatMoney } from '../utils/currency.js';
 
 export default function Dashboard() {
@@ -11,12 +11,15 @@ export default function Dashboard() {
   const [price, setPrice] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshStatus, setRefreshStatus] = useState(null);
+  const [buyWarning, setBuyWarning] = useState('');
   const [buyError, setBuyError] = useState('');
   const [searchTicker, setSearchTicker] = useState('');
   const [searchCurrency, setSearchCurrency] = useState('USD');
   const [sellingLotId, setSellingLotId] = useState(null);
   const [sellQty, setSellQty] = useState('');
   const [sellPrice, setSellPrice] = useState('');
+  const [manualPriceLotId, setManualPriceLotId] = useState(null);
+  const [manualPriceValue, setManualPriceValue] = useState('');
   const navigate = useNavigate();
 
   const load = async () => {
@@ -31,13 +34,23 @@ export default function Dashboard() {
   const addBuy = async (e) => {
     e.preventDefault();
     setBuyError('');
+    setBuyWarning('');
     const ticker = newTicker.toUpperCase();
     try {
       await stocks.add(ticker, newCurrency);
-      const priceRes = await stocks.refreshPrice(ticker);
-      if (priceRes.data?.error) {
-        setBuyError(`Price fetch failed: ${priceRes.data.error} — you can still record the buy.`);
+      await watchlist.add(ticker); // so it shows up under "My Companies" even if never bought
+
+      // Price fetch failing should NEVER block recording the buy — it's just best-effort here.
+      try {
+        const priceRes = await stocks.refreshPrice(ticker);
+        if (priceRes.data?.error) {
+          setBuyWarning(`Live price unavailable (${priceRes.data.error}). You can set it manually below after adding.`);
+        }
+      } catch (priceErr) {
+        const msg = priceErr.response?.data?.error || 'Live price fetch failed.';
+        setBuyWarning(`${msg} You can set the price manually from the holdings table below.`);
       }
+
       await investments.buy({ ticker, quantity: Number(qty), buyPrice: Number(price), buyDate: null });
       setNewTicker(''); setQty(''); setPrice('');
       load();
@@ -51,6 +64,7 @@ export default function Dashboard() {
     if (!searchTicker.trim()) return;
     const ticker = searchTicker.toUpperCase();
     await stocks.add(ticker, searchCurrency); // idempotent — ensures it exists before navigating
+    await watchlist.add(ticker);
     navigate(`/stock/${ticker}`);
   };
 
@@ -60,7 +74,7 @@ export default function Dashboard() {
     const failures = Object.entries(res.data).filter(([, v]) => v !== 'ok');
     setRefreshStatus(failures.length === 0
       ? 'All prices refreshed.'
-      : `Some tickers failed: ${failures.map(([t, e]) => `${t} (${e})`).join('; ')}`);
+      : `Some tickers failed: ${failures.map(([t, e]) => `${t} (${e})`).join('; ')} — set those manually below.`);
     load();
   };
 
@@ -76,6 +90,18 @@ export default function Dashboard() {
       lotId, quantity: Number(sellQty), sellPrice: Number(sellPrice), sellDate: null, notes: '',
     });
     setSellingLotId(null);
+    load();
+  };
+
+  const openManualPrice = (lotId) => {
+    setManualPriceLotId(lotId);
+    setManualPriceValue('');
+  };
+
+  const submitManualPrice = async (e, ticker) => {
+    e.preventDefault();
+    await stocks.setManualPrice(ticker, Number(manualPriceValue));
+    setManualPriceLotId(null);
     load();
   };
 
@@ -131,7 +157,8 @@ export default function Dashboard() {
         <p style={{ color: '#94a3b8', fontSize: 13, marginTop: 6 }}>
           For Indian stocks, Alpha Vantage typically needs an exchange suffix like <code>.BSE</code>
           (e.g. RELIANCE.BSE). Fundamentals usually aren't available via API for these — use manual
-          Big Five entry on the stock page instead.
+          Big Five entry on the stock page instead. Every stock you search also shows up under
+          "My Companies" in the nav, so you can find it again later.
         </p>
       </div>
 
@@ -147,7 +174,13 @@ export default function Dashboard() {
           <input placeholder="Buy price" type="number" step="any" value={price} onChange={(e) => setPrice(e.target.value)} required />
           <button type="submit">Add position</button>
         </form>
-        {buyError && <p className="negative" style={{ marginTop: 10 }}>{buyError}</p>}
+        <p style={{ color: '#94a3b8', fontSize: 13, marginTop: 6 }}>
+          "Buy price" above is what YOU paid — it's always required. If the live current price
+          can't be fetched, the buy still goes through; you can set the current price manually
+          from the holdings table below.
+        </p>
+        {buyWarning && <p style={{ color: '#facc15', marginTop: 10 }}>{buyWarning}</p>}
+        {buyError && <p className="negative" style={{ marginTop: 10 }}>{String(buyError)}</p>}
       </div>
 
       <div className="card">
@@ -161,7 +194,7 @@ export default function Dashboard() {
             <thead>
               <tr>
                 <th>Ticker</th><th>Qty</th><th>Buy price</th><th>Current price</th>
-                <th>Unrealized gain</th><th>%</th><th></th><th></th>
+                <th>Unrealized gain</th><th>%</th><th></th><th></th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -171,11 +204,16 @@ export default function Dashboard() {
                     <td><Link to={`/stock/${h.ticker}`}>{h.ticker}</Link></td>
                     <td>{h.remainingQuantity}</td>
                     <td>{formatMoney(h.buyPrice, h.currency)}</td>
-                    <td>{h.currentPrice ? formatMoney(h.currentPrice, h.currency) : (
-                      <span style={{ color: '#94a3b8' }} title="Click 'Refresh all prices' above, or check the API key / rate limit">
-                        unavailable
-                      </span>
-                    )}</td>
+                    <td>
+                      {h.currentPrice ? formatMoney(h.currentPrice, h.currency) : (
+                        <span style={{ color: '#94a3b8' }}>not set</span>
+                      )}
+                      {h.priceSource && (
+                        <span className={`badge ${h.priceSource === 'API' ? 'pass' : 'fail'}`} style={{ marginLeft: 6 }}>
+                          {h.priceSource === 'API' ? 'Live' : 'Manual'}
+                        </span>
+                      )}
+                    </td>
                     <td className={h.unrealizedGain >= 0 ? 'positive' : 'negative'}>
                       {h.unrealizedGain != null ? formatMoney(h.unrealizedGain, h.currency) : '—'}
                     </td>
@@ -183,11 +221,24 @@ export default function Dashboard() {
                       {h.unrealizedGainPct != null ? `${Number(h.unrealizedGainPct).toFixed(2)}%` : '—'}
                     </td>
                     <td><span className="badge pass">{h.status}</span></td>
+                    <td><button onClick={() => openManualPrice(h.lotId)}>Set price</button></td>
                     <td><button onClick={() => openSell(h.lotId)}>Sell</button></td>
                   </tr>
+                  {manualPriceLotId === h.lotId && (
+                    <tr>
+                      <td colSpan={9}>
+                        <form onSubmit={(e) => submitManualPrice(e, h.ticker)} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                          <input placeholder={`Current price (${h.currency})`} type="number" step="any"
+                                 value={manualPriceValue} onChange={(e) => setManualPriceValue(e.target.value)} required />
+                          <button type="submit">Save price</button>
+                          <button type="button" onClick={() => setManualPriceLotId(null)}>Cancel</button>
+                        </form>
+                      </td>
+                    </tr>
+                  )}
                   {sellingLotId === h.lotId && (
                     <tr>
-                      <td colSpan={8}>
+                      <td colSpan={9}>
                         <form onSubmit={(e) => submitSell(e, h.lotId)} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                           <input placeholder="Quantity to sell" type="number" step="any" max={h.remainingQuantity}
                                  value={sellQty} onChange={(e) => setSellQty(e.target.value)} required />

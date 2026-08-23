@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { stocks, checklist, stickerPrice, score, exportApi } from '../api/api.js';
-import { currencySymbol } from '../utils/currency.js';
+import { stocks, checklist, stickerPrice, score, exportApi, watchlist } from '../api/api.js';
+import { currencySymbol, formatMoney } from '../utils/currency.js';
 
 const emptyManualForm = {
   fiscalYear: new Date().getFullYear(), sales: '', eps: '', equity: '',
@@ -20,9 +20,11 @@ function growthCell(rates, key) {
 export default function StockDetail() {
   const { ticker } = useParams();
   const [stockInfo, setStockInfo] = useState(null);
-  const [bigFiveSource, setBigFiveSource] = useState('API'); // 'API' | 'MANUAL'
+  const [bigFiveSource, setBigFiveSource] = useState(() => localStorage.getItem(`bigFiveSource:${ticker}`) || 'API');
   const [bigFive, setBigFive] = useState([]);
   const [growthRates, setGrowthRates] = useState(null);
+  const [growthYears, setGrowthYears] = useState('10,5,3,1');
+  const [customYears, setCustomYears] = useState('');
   const [bigFiveError, setBigFiveError] = useState('');
   const [refreshingBigFive, setRefreshingBigFive] = useState(false);
   const [manualForm, setManualForm] = useState(emptyManualForm);
@@ -34,16 +36,19 @@ export default function StockDetail() {
   const [spResult, setSpResult] = useState(null);
   const [spError, setSpError] = useState('');
   const [showCheatSheet, setShowCheatSheet] = useState(false);
+  const [manualPriceValue, setManualPriceValue] = useState('');
+  const [showManualPrice, setShowManualPrice] = useState(false);
+  const [priceError, setPriceError] = useState('');
 
   const currency = stockInfo?.currency || 'USD';
   const symbol = currencySymbol(currency);
 
-  const loadBigFive = async (src) => {
+  const loadBigFive = async (src, years) => {
     setBigFiveError('');
     try {
       const [bf, gr] = await Promise.all([
         stocks.getBigFiveBySource(ticker, src),
-        stocks.growthRates(ticker, src),
+        stocks.growthRates(ticker, src, years),
       ]);
       setBigFive(bf.data);
       setGrowthRates(gr.data);
@@ -53,6 +58,11 @@ export default function StockDetail() {
   };
 
   const loadAll = async () => {
+    // Registers this stock under "My Companies" even if reached by direct link, so it's
+    // always findable again later — this is what fixes data appearing to "disappear."
+    await stocks.add(ticker).catch(() => {});
+    await watchlist.add(ticker).catch(() => {});
+
     const [info, ci, cr, sc] = await Promise.all([
       stocks.get(ticker).catch(() => null),
       checklist.items(),
@@ -65,11 +75,39 @@ export default function StockDetail() {
     cr.data.forEach((r) => { respMap[r.checklistItemId] = r; });
     setResponses(respMap);
     setBusinessScore(sc?.data || null);
-    loadBigFive(bigFiveSource);
+
+    // Auto-detect which source actually has data, so returning to this page doesn't look like
+    // your Big Five "disappeared" just because it defaulted to the empty tab.
+    let sourceToShow = bigFiveSource;
+    try {
+      const [apiCheck, manualCheck] = await Promise.all([
+        stocks.getBigFiveBySource(ticker, 'API'),
+        stocks.getBigFiveBySource(ticker, 'MANUAL'),
+      ]);
+      const remembered = localStorage.getItem(`bigFiveSource:${ticker}`);
+      if (remembered === 'API' && apiCheck.data.length > 0) sourceToShow = 'API';
+      else if (remembered === 'MANUAL' && manualCheck.data.length > 0) sourceToShow = 'MANUAL';
+      else if (apiCheck.data.length > 0) sourceToShow = 'API';
+      else if (manualCheck.data.length > 0) sourceToShow = 'MANUAL';
+    } catch { /* fall through to default */ }
+    setBigFiveSource(sourceToShow);
+    loadBigFive(sourceToShow, growthYears);
   };
 
   useEffect(() => { loadAll(); }, [ticker]);
-  useEffect(() => { loadBigFive(bigFiveSource); }, [bigFiveSource]);
+
+  useEffect(() => {
+    localStorage.setItem(`bigFiveSource:${ticker}`, bigFiveSource);
+    loadBigFive(bigFiveSource, growthYears);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bigFiveSource]);
+
+  const applyCustomYears = () => {
+    const cleaned = customYears.split(',').map((s) => s.trim()).filter(Boolean).join(',');
+    const combined = cleaned ? `10,5,3,1,${cleaned}` : '10,5,3,1';
+    setGrowthYears(combined);
+    loadBigFive(bigFiveSource, combined);
+  };
 
   const refreshBigFive = async () => {
     setRefreshingBigFive(true);
@@ -80,12 +118,30 @@ export default function StockDetail() {
         setBigFiveError(res.data.error);
       } else {
         setBigFiveSource('API');
-        loadBigFive('API');
       }
     } catch (err) {
       setBigFiveError(err.response?.data?.error || 'Refresh failed.');
     }
     setRefreshingBigFive(false);
+  };
+
+  const refreshPrice = async () => {
+    setPriceError('');
+    try {
+      const res = await stocks.refreshPrice(ticker);
+      if (res.data?.error) setPriceError(res.data.error);
+      else setStockInfo(res.data);
+    } catch (err) {
+      setPriceError(err.response?.data?.error || 'Price fetch failed.');
+    }
+  };
+
+  const submitManualPrice = async (e) => {
+    e.preventDefault();
+    const res = await stocks.setManualPrice(ticker, Number(manualPriceValue));
+    setStockInfo(res.data);
+    setShowManualPrice(false);
+    setManualPriceValue('');
   };
 
   const editYear = (row) => {
@@ -118,13 +174,13 @@ export default function StockDetail() {
     });
     cancelEdit();
     setBigFiveSource('MANUAL');
-    loadBigFive('MANUAL');
+    loadBigFive('MANUAL', growthYears);
   };
 
   const deleteYear = async (source, fiscalYear) => {
     if (!window.confirm(`Delete ${fiscalYear} (${source}) Big Five data for ${ticker}? This cannot be undone.`)) return;
     await stocks.deleteBigFiveYear(ticker, source, fiscalYear);
-    loadBigFive(bigFiveSource);
+    loadBigFive(bigFiveSource, growthYears);
   };
 
   const toggleCheck = async (itemId) => {
@@ -192,11 +248,37 @@ export default function StockDetail() {
     return acc;
   }, {});
 
+  const growthColumns = growthYears.split(',').map((s) => s.trim()).filter(Boolean);
+
   return (
     <div className="container">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
         <h1>{ticker} <span style={{ fontSize: 14, color: '#94a3b8' }}>({currency})</span></h1>
         <button onClick={downloadReport}>Download report</button>
+      </div>
+
+      <div className="card">
+        <h3>Current price</h3>
+        <p>
+          {stockInfo?.lastPrice ? formatMoney(stockInfo.lastPrice, currency) : <span style={{ color: '#94a3b8' }}>not set</span>}
+          {stockInfo?.priceSource && (
+            <span className={`badge ${stockInfo.priceSource === 'API' ? 'pass' : 'fail'}`} style={{ marginLeft: 8 }}>
+              {stockInfo.priceSource === 'API' ? 'Live' : 'Manual'}
+            </span>
+          )}
+        </p>
+        {priceError && <p className="negative">{priceError}</p>}
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button onClick={refreshPrice}>Refresh from API</button>
+          <button onClick={() => setShowManualPrice(!showManualPrice)}>Set price manually</button>
+        </div>
+        {showManualPrice && (
+          <form onSubmit={submitManualPrice} style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+            <input placeholder={`Price (${currency})`} type="number" step="any"
+                   value={manualPriceValue} onChange={(e) => setManualPriceValue(e.target.value)} required />
+            <button type="submit">Save</button>
+          </form>
+        )}
       </div>
 
       <div className="card">
@@ -234,23 +316,32 @@ export default function StockDetail() {
           </ResponsiveContainer>
         )}
 
-        <h4 style={{ marginTop: 20 }}>10-year growth rates</h4>
+        <h4 style={{ marginTop: 20 }}>Growth rates</h4>
         <p style={{ color: '#94a3b8', fontSize: 13 }}>
-          Each metric is calculated independently — a gap in one (e.g. missing Free Cash Flow
-          for some years) never blocks seeing the growth rate for the others.
+          Each metric is calculated independently — a gap in one never blocks seeing the others.
         </p>
+        <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
+          <input placeholder="Add custom year window, e.g. 7" value={customYears}
+                 onChange={(e) => setCustomYears(e.target.value)} style={{ width: 220 }} />
+          <button onClick={applyCustomYears}>Show</button>
+        </div>
         <table>
-          <thead><tr><th>Sales</th><th>EPS</th><th>Equity</th><th>Free Cash Flow</th><th>Latest ROIC</th></tr></thead>
-          <tbody>
+          <thead>
             <tr>
-              <td>{growthCell(growthRates?.sales, '10yr')}</td>
-              <td>{growthCell(growthRates?.eps, '10yr')}</td>
-              <td>{growthCell(growthRates?.equity, '10yr')}</td>
-              <td>{growthCell(growthRates?.freeCashFlow, '10yr')}</td>
-              <td>{growthRates?.latestRoicPct != null ? `${growthRates.latestRoicPct}%` : <span style={{ color: '#94a3b8' }}>n/a</span>}</td>
+              <th>Metric</th>
+              {growthColumns.map((y) => <th key={y}>{y}yr</th>)}
             </tr>
+          </thead>
+          <tbody>
+            <tr><td>Sales</td>{growthColumns.map((y) => <td key={y}>{growthCell(growthRates?.sales, `${y}yr`)}</td>)}</tr>
+            <tr><td>EPS</td>{growthColumns.map((y) => <td key={y}>{growthCell(growthRates?.eps, `${y}yr`)}</td>)}</tr>
+            <tr><td>Equity</td>{growthColumns.map((y) => <td key={y}>{growthCell(growthRates?.equity, `${y}yr`)}</td>)}</tr>
+            <tr><td>Free Cash Flow</td>{growthColumns.map((y) => <td key={y}>{growthCell(growthRates?.freeCashFlow, `${y}yr`)}</td>)}</tr>
           </tbody>
         </table>
+        <p style={{ color: '#94a3b8', fontSize: 13, marginTop: 6 }}>
+          Latest ROIC: {growthRates?.latestRoicPct != null ? `${growthRates.latestRoicPct}%` : 'n/a'}
+        </p>
 
         {bigFiveSource === 'MANUAL' && bigFive.length > 0 && (
           <>

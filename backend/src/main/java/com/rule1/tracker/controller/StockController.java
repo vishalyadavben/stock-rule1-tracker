@@ -59,13 +59,31 @@ public class StockController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
+    /** Lets the user set a stock's price by hand when the API can't fetch it — rate limit hit,
+     *  invalid/demo key, or a ticker (e.g. many Indian ones) the API just doesn't cover.
+     *  Marks the price as MANUAL so the UI can show it isn't live. */
+    @PostMapping("/{ticker}/manual-price")
+    public ResponseEntity<Stock> setManualPrice(@PathVariable String ticker, @RequestBody Map<String, BigDecimal> body) {
+        Stock stock = stockRepository.findByTicker(ticker.toUpperCase())
+                .orElseThrow(() -> new RuntimeException("Stock not found — add it first"));
+        BigDecimal price = body.get("price");
+        if (price == null) {
+            throw new RuntimeException("price is required");
+        }
+        stock.setLastPrice(price);
+        stock.setLastPriceAt(LocalDateTime.now());
+        stock.setPriceSource(Stock.PriceSource.MANUAL);
+        return ResponseEntity.ok(stockRepository.save(stock));
+    }
+
     /** Pulls latest price from the market data API and updates the stock row.
      *  Returns 502 with a specific error message (instead of silently succeeding with no
      *  price) if Alpha Vantage rejects the request — see StockDataService for why that
      *  distinction matters.
      *  For Indian tickers, Alpha Vantage expects an exchange suffix, e.g. RELIANCE.BSE —
      *  fundamentals (Big Five) generally aren't available for these on the free tier, so use
-     *  manual entry for those. */
+     *  manual entry for those. If this fails, use /manual-price to set the price by hand
+     *  instead of being blocked. */
     @PostMapping("/{ticker}/refresh-price")
     public ResponseEntity<?> refreshPrice(@PathVariable String ticker) {
         Stock stock = stockRepository.findByTicker(ticker.toUpperCase())
@@ -74,6 +92,7 @@ public class StockController {
             var price = stockDataService.fetchLatestPrice(ticker.toUpperCase());
             stock.setLastPrice(price);
             stock.setLastPriceAt(LocalDateTime.now());
+            stock.setPriceSource(Stock.PriceSource.API);
             stockRepository.save(stock);
             return ResponseEntity.ok(stock);
         } catch (StockApiException e) {
@@ -154,25 +173,35 @@ public class StockController {
     }
 
     /**
-     * Per-metric growth rates (10yr / 5yr / 1yr), computed independently for Sales, EPS,
-     * Equity, and Free Cash Flow, plus the latest ROIC — so a gap in one metric (e.g. no FCF
-     * data for some years) never blocks seeing growth for the others. Each entry is null only
-     * if that specific metric truly lacks enough data points, never because a different
-     * metric is missing.
+     * Per-metric growth rates, computed independently for Sales, EPS, Equity, and Free Cash
+     * Flow, plus the latest ROIC — so a gap in one metric never blocks seeing growth for the
+     * others. Defaults to 10/5/3/1-year windows; pass `years=10,7,2` (any comma-separated list)
+     * to see custom windows instead.
      */
     @GetMapping("/{ticker}/growth-rates")
     public ResponseEntity<Map<String, Object>> growthRates(@PathVariable String ticker,
-                                                            @RequestParam(defaultValue = "API") String source) {
+                                                            @RequestParam(defaultValue = "API") String source,
+                                                            @RequestParam(defaultValue = "10,5,3,1") String years) {
         Stock stock = stockRepository.findByTicker(ticker.toUpperCase())
                 .orElseThrow(() -> new RuntimeException("Stock not found"));
         BigFiveMetric.Source src = BigFiveMetric.Source.valueOf(source.toUpperCase());
         List<BigFiveMetric> yearly = bigFiveMetricRepository.findByStockIdAndSourceOrderByFiscalYearAsc(stock.getId(), src);
 
+        int[] windows;
+        try {
+            windows = java.util.Arrays.stream(years.split(","))
+                    .map(String::trim).filter(s -> !s.isEmpty())
+                    .mapToInt(Integer::parseInt).toArray();
+        } catch (NumberFormatException e) {
+            return ResponseEntity.badRequest().build();
+        }
+        if (windows.length == 0) windows = new int[]{10, 5, 3, 1};
+
         Map<String, Object> result = new java.util.LinkedHashMap<>();
-        result.put("sales", calculationService.computeGrowthRates(yearly, "sales"));
-        result.put("eps", calculationService.computeGrowthRates(yearly, "eps"));
-        result.put("equity", calculationService.computeGrowthRates(yearly, "equity"));
-        result.put("freeCashFlow", calculationService.computeGrowthRates(yearly, "freeCashFlow"));
+        result.put("sales", calculationService.computeGrowthRates(yearly, "sales", windows));
+        result.put("eps", calculationService.computeGrowthRates(yearly, "eps", windows));
+        result.put("equity", calculationService.computeGrowthRates(yearly, "equity", windows));
+        result.put("freeCashFlow", calculationService.computeGrowthRates(yearly, "freeCashFlow", windows));
 
         BigDecimal latestRoic = yearly.isEmpty() ? null : yearly.get(yearly.size() - 1).getRoicPct();
         result.put("latestRoicPct", latestRoic);

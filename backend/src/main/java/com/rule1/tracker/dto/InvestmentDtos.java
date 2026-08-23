@@ -11,7 +11,7 @@ public class InvestmentDtos {
             Long lotId, String ticker, String companyName, String currency,
             BigDecimal quantity, BigDecimal remainingQuantity,
             BigDecimal buyPrice, LocalDateTime buyDate,
-            BigDecimal currentPrice, BigDecimal unrealizedGain, BigDecimal unrealizedGainPct,
+            BigDecimal currentPrice, String priceSource, BigDecimal unrealizedGain, BigDecimal unrealizedGainPct,
             String status
     ) {}
 
