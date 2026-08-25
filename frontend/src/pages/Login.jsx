@@ -18,6 +18,7 @@ export default function Login() {
         ? await auth.login({ email, password })
         : await auth.register({ email, password, displayName });
       localStorage.setItem('token', res.data.token);
+      localStorage.setItem('displayName', res.data.displayName || res.data.email);
       navigate('/');
     } catch (err) {
       setError(err.response?.data || 'Something went wrong');

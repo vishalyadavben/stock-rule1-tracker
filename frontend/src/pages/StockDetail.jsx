@@ -269,8 +269,8 @@ export default function StockDetail() {
         </p>
         {priceError && <p className="negative">{priceError}</p>}
         <div style={{ display: 'flex', gap: 10 }}>
-          <button onClick={refreshPrice}>Refresh from API</button>
-          <button onClick={() => setShowManualPrice(!showManualPrice)}>Set price manually</button>
+          <button title="Fetch the live market price from Alpha Vantage" onClick={refreshPrice}>🔄 Refresh from API</button>
+          <button title="Enter the current market price yourself" onClick={() => setShowManualPrice(!showManualPrice)}>✏️ Set current price manually</button>
         </div>
         {showManualPrice && (
           <form onSubmit={submitManualPrice} style={{ display: 'flex', gap: 10, marginTop: 10 }}>
@@ -289,11 +289,14 @@ export default function StockDetail() {
               <option value="API">API-fetched data</option>
               <option value="MANUAL">Manually entered data</option>
             </select>
-            <button onClick={refreshBigFive} disabled={refreshingBigFive}>
-              {refreshingBigFive ? 'Refreshing…' : 'Refresh from API'}
+            <button title="Fetch fresh fundamentals from Alpha Vantage" onClick={refreshBigFive} disabled={refreshingBigFive}>
+              {refreshingBigFive ? 'Refreshing…' : '🔄 Refresh from API'}
             </button>
           </div>
         </div>
+        <p style={{ marginTop: 4 }}>
+          <Link to="/learn#big-five-detailed">Not sure what these numbers mean? Learn them here →</Link>
+        </p>
 
         {bigFiveError && <p className="negative" style={{ marginTop: 10 }}>{bigFiveError}</p>}
 
@@ -337,11 +340,9 @@ export default function StockDetail() {
             <tr><td>EPS</td>{growthColumns.map((y) => <td key={y}>{growthCell(growthRates?.eps, `${y}yr`)}</td>)}</tr>
             <tr><td>Equity</td>{growthColumns.map((y) => <td key={y}>{growthCell(growthRates?.equity, `${y}yr`)}</td>)}</tr>
             <tr><td>Free Cash Flow</td>{growthColumns.map((y) => <td key={y}>{growthCell(growthRates?.freeCashFlow, `${y}yr`)}</td>)}</tr>
+            <tr><td>ROIC (average)</td>{growthColumns.map((y) => <td key={y}>{growthCell(growthRates?.roic, `${y}yr`)}</td>)}</tr>
           </tbody>
         </table>
-        <p style={{ color: '#94a3b8', fontSize: 13, marginTop: 6 }}>
-          Latest ROIC: {growthRates?.latestRoicPct != null ? `${growthRates.latestRoicPct}%` : 'n/a'}
-        </p>
 
         {bigFiveSource === 'MANUAL' && bigFive.length > 0 && (
           <>
@@ -406,7 +407,11 @@ export default function StockDetail() {
         {showCheatSheet && (
           <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, padding: 14, marginBottom: 14, fontSize: 14 }}>
             <ol style={{ margin: 0, paddingLeft: 20 }}>
-              <li>Grow <b>current EPS</b> at your <b>estimated growth rate</b> for 10 years → future EPS.</li>
+              <li>Grow <b>current EPS</b> at your <b>estimated growth rate</b> for 10 years → future EPS.
+                  This grows the EPS number itself — but per the book, the growth <i>rate</i> you
+                  plug in should come from historical <b>equity</b> growth, not historical EPS
+                  growth (equity growth is the better predictor of future EPS growth). That's
+                  exactly what "Auto-fill from Big Five" does above.</li>
               <li>Multiply future EPS by an <b>estimated future PE</b> (default: 2× the growth rate) → future price.</li>
               <li>Discount that back over 10 years at your <b>minimum acceptable rate of return</b> → Sticker Price.</li>
               <li><b>Margin of Safety price</b> = 50% of Sticker Price — your target buy price.</li>
@@ -449,7 +454,7 @@ export default function StockDetail() {
         <h3>Four Ms checklist</h3>
         {Object.entries(grouped).map(([category, catItems]) => (
           <div key={category} style={{ marginBottom: 16 }}>
-            <h4>{category.replace('_', ' ')}</h4>
+            <h4>{category.replace(/_/g, ' ')}</h4>
             {catItems.map((item) => (
               <div key={item.id} style={{ marginBottom: 10 }}>
                 <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>

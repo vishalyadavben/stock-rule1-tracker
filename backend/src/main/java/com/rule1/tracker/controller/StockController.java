@@ -202,6 +202,7 @@ public class StockController {
         result.put("eps", calculationService.computeGrowthRates(yearly, "eps", windows));
         result.put("equity", calculationService.computeGrowthRates(yearly, "equity", windows));
         result.put("freeCashFlow", calculationService.computeGrowthRates(yearly, "freeCashFlow", windows));
+        result.put("roic", calculationService.averageRoic(yearly, windows));
 
         BigDecimal latestRoic = yearly.isEmpty() ? null : yearly.get(yearly.size() - 1).getRoicPct();
         result.put("latestRoicPct", latestRoic);

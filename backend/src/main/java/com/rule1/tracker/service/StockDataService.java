@@ -157,6 +157,30 @@ public class StockDataService {
         }
     }
 
+    /** Live FX rate between two currency codes (e.g. "USD" -> "INR"), via Alpha Vantage's
+     *  CURRENCY_EXCHANGE_RATE endpoint — used to convert portfolio totals across currencies
+     *  on request, rather than just warning that a mix exists. */
+    public BigDecimal fetchExchangeRate(String from, String to) {
+        String url = String.format("%s/query?function=CURRENCY_EXCHANGE_RATE&from_currency=%s&to_currency=%s&apikey=%s",
+                baseUrl, from, to, apiKey);
+        JsonNode root;
+        try {
+            root = restTemplate.getForObject(url, JsonNode.class);
+        } catch (Exception e) {
+            throw new StockApiException("Could not reach Alpha Vantage for exchange rate: " + e.getMessage());
+        }
+        if (root == null) throw new StockApiException("Alpha Vantage returned an empty exchange rate response");
+        if (root.has("Note")) throw new StockApiException("Alpha Vantage rate limit hit: " + root.get("Note").asText());
+        if (root.has("Information")) throw new StockApiException("Alpha Vantage rejected the request: " + root.get("Information").asText());
+
+        JsonNode rateNode = root.path("Realtime Currency Exchange Rate").path("5. Exchange Rate");
+        String rateStr = rateNode.asText(null);
+        if (rateStr == null) {
+            throw new StockApiException("No exchange rate returned for " + from + "->" + to + ". Raw response: " + root);
+        }
+        return new BigDecimal(rateStr);
+    }
+
     private JsonNode callFunction(String function, String ticker) {
         String url = String.format("%s/query?function=%s&symbol=%s&apikey=%s", baseUrl, function, ticker, apiKey);
         JsonNode result;

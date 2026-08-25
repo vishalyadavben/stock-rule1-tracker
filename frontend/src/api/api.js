@@ -13,6 +13,7 @@ api.interceptors.request.use((config) => {
 export const auth = {
   register: (data) => api.post('/auth/register', data),
   login: (data) => api.post('/auth/login', data),
+  me: () => api.get('/auth/me'),
 };
 
 export const stocks = {
@@ -34,6 +35,7 @@ export const investments = {
   holdings: () => api.get('/investments/holdings'),
   history: () => api.get('/investments/history'),
   refreshPrices: () => api.post('/investments/refresh-prices'),
+  deleteLot: (lotId) => api.delete(`/investments/lots/${lotId}`),
 };
 
 export const stickerPrice = {
@@ -52,6 +54,16 @@ export const notes = {
   list: () => api.get('/notes'),
   create: (content) => api.post('/notes', { content }),
   remove: (id) => api.delete(`/notes/${id}`),
+};
+
+export const exchangeRate = {
+  get: (from, to) => api.get('/exchange-rate', { params: { from, to } }),
+};
+
+// Alias used by Dashboard's currency-conversion feature — same endpoint, kept as a separate
+// export name for readability at the call site (fx.rate(...) reads more naturally there).
+export const fx = {
+  rate: (from, to) => api.get('/exchange-rate', { params: { from, to } }),
 };
 
 export const checklist = {

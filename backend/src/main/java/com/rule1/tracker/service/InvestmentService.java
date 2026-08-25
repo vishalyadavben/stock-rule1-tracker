@@ -24,7 +24,8 @@ public class InvestmentService {
         this.stockRepository = stockRepository;
     }
 
-    /** Records a new buy as a fresh lot. */
+    /** Records a new buy as a fresh lot. isPaperMoney defaults to false (real money) if not
+     *  specified — a lot is only deletable later if it was explicitly marked paper money here. */
     public InvestmentLot buy(Long userId, BuyRequest req) {
         Stock stock = stockRepository.findByTicker(req.ticker().toUpperCase())
                 .orElseThrow(() -> new RuntimeException("Stock not found — add it first via /api/stocks/{ticker}"));
@@ -37,6 +38,7 @@ public class InvestmentService {
         lot.setBuyPrice(req.buyPrice());
         lot.setBuyDate(req.buyDate() != null ? req.buyDate() : LocalDateTime.now());
         lot.setStatus(InvestmentLot.LotStatus.OPEN);
+        lot.setIsPaperMoney(req.isPaperMoney() != null && req.isPaperMoney());
         lot.setCreatedAt(LocalDateTime.now());
         return lotRepository.save(lot);
     }
@@ -93,5 +95,20 @@ public class InvestmentService {
     public List<InvestmentExit> getExitHistory(Long userId) {
         List<Long> lotIds = lotRepository.findByUserId(userId).stream().map(InvestmentLot::getId).toList();
         return exitRepository.findByLotIdIn(lotIds);
+    }
+
+    /** Deletes a lot (and, via DB cascade, every exit recorded against it) — but only if it was
+     *  marked paper money at buy time. Real-money lots are never deletable, by design; this is
+     *  a safety rail, not a technicality to work around. */
+    public void deleteLot(Long userId, Long lotId) {
+        InvestmentLot lot = lotRepository.findById(lotId)
+                .orElseThrow(() -> new RuntimeException("Lot not found"));
+        if (!lot.getUserId().equals(userId)) {
+            throw new RuntimeException("Not authorized for this lot");
+        }
+        if (lot.getIsPaperMoney() == null || !lot.getIsPaperMoney()) {
+            throw new RuntimeException("Only paper-money positions can be deleted. This lot was recorded as real money.");
+        }
+        lotRepository.delete(lot);
     }
 }
