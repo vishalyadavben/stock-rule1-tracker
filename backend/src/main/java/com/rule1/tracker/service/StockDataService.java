@@ -72,19 +72,11 @@ public class StockDataService {
      * Pulls annual income statement, balance sheet, and cash flow reports and assembles
      * BigFiveMetric rows (one per fiscal year) with source = API.
      * stockId must be set by the caller after persisting.
-     *
-     * Alpha Vantage's free tier enforces "1 request per second" — this method makes 4 calls
-     * (income, balance sheet, cash flow, overview), so we deliberately pace them out. This
-     * doesn't fix the separate 25-requests/day cap, but it stops the "sometimes it works,
-     * sometimes it doesn't" burst-limit rejections you'd otherwise see on every single refresh.
      */
     public List<BigFiveMetric> fetchBigFiveHistory(String ticker) {
         JsonNode income = callFunction("INCOME_STATEMENT", ticker).path("annualReports");
-        pace();
         JsonNode balance = callFunction("BALANCE_SHEET", ticker).path("annualReports");
-        pace();
         JsonNode cashFlow = callFunction("CASH_FLOW", ticker).path("annualReports");
-        pace();
         JsonNode overview = callFunction("OVERVIEW", ticker);
 
         List<BigFiveMetric> results = new ArrayList<>();
@@ -144,41 +136,6 @@ public class StockDataService {
             if (date.startsWith(String.valueOf(year))) return r;
         }
         return null;
-    }
-
-    /** Simple pacing to stay under Alpha Vantage's free-tier "1 request per second" burst
-     *  limit. A dedicated rate-limiter (e.g. Resilience4j) would be sturdier under concurrent
-     *  users, but for personal/small-group use this is the pragmatic fix. */
-    private void pace() {
-        try {
-            Thread.sleep(1200);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-    }
-
-    /** Live FX rate between two currency codes (e.g. "USD" -> "INR"), via Alpha Vantage's
-     *  CURRENCY_EXCHANGE_RATE endpoint — used to convert portfolio totals across currencies
-     *  on request, rather than just warning that a mix exists. */
-    public BigDecimal fetchExchangeRate(String from, String to) {
-        String url = String.format("%s/query?function=CURRENCY_EXCHANGE_RATE&from_currency=%s&to_currency=%s&apikey=%s",
-                baseUrl, from, to, apiKey);
-        JsonNode root;
-        try {
-            root = restTemplate.getForObject(url, JsonNode.class);
-        } catch (Exception e) {
-            throw new StockApiException("Could not reach Alpha Vantage for exchange rate: " + e.getMessage());
-        }
-        if (root == null) throw new StockApiException("Alpha Vantage returned an empty exchange rate response");
-        if (root.has("Note")) throw new StockApiException("Alpha Vantage rate limit hit: " + root.get("Note").asText());
-        if (root.has("Information")) throw new StockApiException("Alpha Vantage rejected the request: " + root.get("Information").asText());
-
-        JsonNode rateNode = root.path("Realtime Currency Exchange Rate").path("5. Exchange Rate");
-        String rateStr = rateNode.asText(null);
-        if (rateStr == null) {
-            throw new StockApiException("No exchange rate returned for " + from + "->" + to + ". Raw response: " + root);
-        }
-        return new BigDecimal(rateStr);
     }
 
     private JsonNode callFunction(String function, String ticker) {

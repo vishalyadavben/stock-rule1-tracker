@@ -1,24 +1,25 @@
 package com.rule1.tracker.controller;
 
-import com.rule1.tracker.entity.*;
-import com.rule1.tracker.repository.*;
+import com.rule1.tracker.entity.InvestmentExit;
+import com.rule1.tracker.entity.InvestmentLot;
+import com.rule1.tracker.entity.Stock;
+import com.rule1.tracker.repository.StockRepository;
 import com.rule1.tracker.security.CurrentUser;
-import com.rule1.tracker.service.CalculationService;
 import com.rule1.tracker.service.InvestmentService;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.io.PrintWriter;
 import java.util.List;
 import java.util.Map;
 
 /**
- * Exports the user's investment and research data for download.
- * CSV export is kept as CSV rather than a true .xlsx to avoid pulling in a heavy dependency
- * (Apache POI) for what Excel already reads natively; say the word if you'd rather have real
- * multi-sheet .xlsx output and I'll wire that in instead.
- * The per-stock report is HTML — opens in any browser, and prints to PDF cleanly via the
- * browser's own "Print > Save as PDF" if you want an actual PDF file.
+ * Exports the user's full investment data (active holdings + full exit history) as CSV —
+ * opens directly in Excel/Numbers/Google Sheets. Kept as CSV rather than a true .xlsx to avoid
+ * pulling in a heavy dependency (Apache POI) for what Excel already reads natively; say the
+ * word if you'd rather have real multi-sheet .xlsx output and I'll wire that in instead.
  */
 @RestController
 @RequestMapping("/api/export")
@@ -26,25 +27,10 @@ public class ExportController {
 
     private final InvestmentService investmentService;
     private final StockRepository stockRepository;
-    private final BigFiveMetricRepository bigFiveMetricRepository;
-    private final ChecklistItemRepository checklistItemRepository;
-    private final ChecklistResponseRepository checklistResponseRepository;
-    private final StickerPriceCalcRepository stickerPriceCalcRepository;
-    private final CalculationService calculationService;
 
-    public ExportController(InvestmentService investmentService, StockRepository stockRepository,
-                             BigFiveMetricRepository bigFiveMetricRepository,
-                             ChecklistItemRepository checklistItemRepository,
-                             ChecklistResponseRepository checklistResponseRepository,
-                             StickerPriceCalcRepository stickerPriceCalcRepository,
-                             CalculationService calculationService) {
+    public ExportController(InvestmentService investmentService, StockRepository stockRepository) {
         this.investmentService = investmentService;
         this.stockRepository = stockRepository;
-        this.bigFiveMetricRepository = bigFiveMetricRepository;
-        this.checklistItemRepository = checklistItemRepository;
-        this.checklistResponseRepository = checklistResponseRepository;
-        this.stickerPriceCalcRepository = stickerPriceCalcRepository;
-        this.calculationService = calculationService;
     }
 
     @GetMapping("/csv")
@@ -97,91 +83,5 @@ public class ExportController {
         }
 
         writer.flush();
-    }
-
-    /** Downloadable single-stock research report: Big Five (both API and manual data),
-     *  growth rates, checklist responses, sticker price calc history, and current score. */
-    @GetMapping("/report/{ticker}")
-    public void exportStockReport(@PathVariable String ticker, HttpServletResponse response) throws java.io.IOException {
-        Long userId = CurrentUser.id();
-        Stock stock = stockRepository.findByTicker(ticker.toUpperCase())
-                .orElseThrow(() -> new RuntimeException("Stock not found"));
-
-        response.setContentType("text/html");
-        response.setHeader("Content-Disposition", "attachment; filename=\"" + stock.getTicker() + "-report.html\"");
-        PrintWriter w = response.getWriter();
-
-        w.println("<html><head><meta charset='utf-8'><title>" + stock.getTicker() + " — Rule #1 report</title>");
-        w.println("<style>body{font-family:Arial,sans-serif;max-width:800px;margin:40px auto;color:#111}"
-                + "table{border-collapse:collapse;width:100%;margin-bottom:24px}"
-                + "th,td{border:1px solid #ccc;padding:6px 10px;text-align:left;font-size:13px}"
-                + "th{background:#f0f0f0}h1{margin-bottom:0}h2{border-bottom:2px solid #333;padding-bottom:4px}"
-                + ".muted{color:#666;font-size:13px}</style></head><body>");
-
-        w.println("<h1>" + stock.getTicker() + (stock.getCompanyName() != null ? " — " + stock.getCompanyName() : "") + "</h1>");
-        w.println("<p class='muted'>Currency: " + stock.getCurrency() + " · Generated " + java.time.LocalDateTime.now() + "</p>");
-
-        for (BigFiveMetric.Source src : BigFiveMetric.Source.values()) {
-            List<BigFiveMetric> yearly = bigFiveMetricRepository.findByStockIdAndSourceOrderByFiscalYearAsc(stock.getId(), src);
-            w.println("<h2>Big Five — " + src + " data</h2>");
-            if (yearly.isEmpty()) {
-                w.println("<p class='muted'>No " + src + " data recorded.</p>");
-                continue;
-            }
-            w.println("<table><tr><th>Year</th><th>Sales</th><th>EPS</th><th>Equity</th>"
-                    + "<th>Free Cash Flow</th><th>Long-Term Debt</th><th>ROIC %</th></tr>");
-            for (BigFiveMetric m : yearly) {
-                w.printf("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>%n",
-                        m.getFiscalYear(), nz(m.getSales()), nz(m.getEps()), nz(m.getEquity()),
-                        nz(m.getFreeCashFlow()), nz(m.getLongTermDebt()), nz(m.getRoicPct()));
-            }
-            w.println("</table>");
-
-            w.println("<p><b>10-year growth rates:</b> "
-                    + "Sales " + growthStr(yearly, "sales") + " · "
-                    + "EPS " + growthStr(yearly, "eps") + " · "
-                    + "Equity " + growthStr(yearly, "equity") + " · "
-                    + "FCF " + growthStr(yearly, "freeCashFlow") + "</p>");
-        }
-
-        w.println("<h2>Four Ms checklist</h2><table><tr><th>Category</th><th>Item</th><th>Checked</th><th>Notes</th></tr>");
-        Map<Long, ChecklistResponse> responses = new java.util.HashMap<>();
-        for (ChecklistResponse r : checklistResponseRepository.findByUserIdAndStockId(userId, stock.getId())) {
-            responses.put(r.getChecklistItemId(), r);
-        }
-        for (ChecklistItem item : checklistItemRepository.findAll()) {
-            ChecklistResponse r = responses.get(item.getId());
-            w.printf("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>%n",
-                    item.getCategory(), item.getPrompt(),
-                    (r != null && Boolean.TRUE.equals(r.getIsChecked())) ? "Yes" : "No",
-                    r != null && r.getFreeText() != null ? r.getFreeText().replace("<", "&lt;") : "");
-        }
-        w.println("</table>");
-
-        w.println("<h2>Sticker Price calculation history</h2>");
-        var calcs = stickerPriceCalcRepository.findByUserIdAndStockIdOrderByCalculatedAtDesc(userId, stock.getId());
-        if (calcs.isEmpty()) {
-            w.println("<p class='muted'>No Sticker Price calculations saved yet.</p>");
-        } else {
-            w.println("<table><tr><th>Date</th><th>Current EPS</th><th>Growth %</th><th>Future PE</th>"
-                    + "<th>Min Return %</th><th>Sticker Price</th><th>Margin-of-Safety Price</th></tr>");
-            for (StickerPriceCalc c : calcs) {
-                w.printf("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>%n",
-                        c.getCalculatedAt(), c.getCurrentEps(), c.getEstimatedGrowthPct(), c.getEstimatedFuturePe(),
-                        c.getMinAcceptableReturn(), c.getStickerPrice(), c.getMarginOfSafetyPrice());
-            }
-            w.println("</table>");
-        }
-
-        w.println("</body></html>");
-        w.flush();
-    }
-
-    private String nz(Object v) { return v == null ? "—" : v.toString(); }
-
-    private String growthStr(List<BigFiveMetric> yearly, String field) {
-        var rates = calculationService.computeGrowthRates(yearly, field);
-        var r = rates.get("10yr");
-        return r == null ? "n/a" : r + "%";
     }
 }

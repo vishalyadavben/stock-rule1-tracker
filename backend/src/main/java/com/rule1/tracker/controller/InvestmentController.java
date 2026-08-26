@@ -46,12 +46,7 @@ public class InvestmentController {
         List<Long> stockIds = lots.stream().map(InvestmentLot::getStockId).distinct().toList();
 
         Map<String, String> results = new java.util.LinkedHashMap<>();
-        boolean first = true;
         for (Long stockId : stockIds) {
-            if (!first) {
-                try { Thread.sleep(1200); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
-            }
-            first = false;
             Stock stock = stockRepository.findById(stockId).orElse(null);
             if (stock == null) continue;
             try {
@@ -98,11 +93,8 @@ public class InvestmentController {
             return new HoldingView(
                     lot.getId(), stock != null ? stock.getTicker() : "?",
                     stock != null ? stock.getCompanyName() : null,
-                    stock != null ? stock.getCurrency() : "USD",
                     lot.getQuantity(), lot.getRemainingQuantity(), lot.getBuyPrice(), lot.getBuyDate(),
-                    currentPrice, stock != null && stock.getPriceSource() != null ? stock.getPriceSource().name() : null,
-                    unrealizedGain, unrealizedGainPct, lot.getStatus().name(),
-                    lot.getIsPaperMoney() != null && lot.getIsPaperMoney()
+                    currentPrice, unrealizedGain, unrealizedGainPct, lot.getStatus().name()
             );
         }).toList();
 
@@ -125,26 +117,12 @@ public class InvestmentController {
                     id -> stockRepository.findById(id).orElse(null));
             return new ExitHistoryView(
                     exit.getId(), exit.getLotId(), stock != null ? stock.getTicker() : "?",
-                    stock != null ? stock.getCurrency() : "USD",
                     exit.getQuantitySold(), exit.getSellPrice(), exit.getSellDate(),
                     lot != null ? lot.getBuyPrice() : null, lot != null ? lot.getBuyDate() : null,
-                    exit.getRealizedGain(), exit.getRealizedGainPct(), exit.getNotes(),
-                    lot != null && lot.getIsPaperMoney() != null && lot.getIsPaperMoney()
+                    exit.getRealizedGain(), exit.getRealizedGainPct(), exit.getNotes()
             );
         }).toList();
 
         return ResponseEntity.ok(views);
-    }
-
-    /** Deletes a paper-money lot (and its exit history, via DB cascade). Real-money lots are
-     *  always rejected — enforced in the service layer, not just the UI. */
-    @DeleteMapping("/lots/{lotId}")
-    public ResponseEntity<?> deleteLot(@PathVariable Long lotId) {
-        try {
-            investmentService.deleteLot(CurrentUser.id(), lotId);
-            return ResponseEntity.noContent().build();
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(403).body(Map.of("error", e.getMessage()));
-        }
     }
 }

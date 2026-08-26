@@ -37,7 +37,7 @@ public class AuthController {
         user = userRepository.save(user);
 
         String token = jwtUtil.generateToken(user.getEmail(), user.getId());
-        return ResponseEntity.ok(new AuthResponse(token, user.getEmail(), user.getId(), user.getDisplayName()));
+        return ResponseEntity.ok(new AuthResponse(token, user.getEmail(), user.getId()));
     }
 
     @PostMapping("/login")
@@ -48,21 +48,6 @@ public class AuthController {
         }
         User user = userOpt.get();
         String token = jwtUtil.generateToken(user.getEmail(), user.getId());
-        return ResponseEntity.ok(new AuthResponse(token, user.getEmail(), user.getId(), user.getDisplayName()));
-    }
-
-    /** Lets the frontend re-fetch the logged-in user's display name after a page reload,
-     *  without needing to trust whatever was last cached in localStorage.
-     *  Note: /api/auth/** is publicly reachable per SecurityConfig, so this endpoint must
-     *  check for a valid token itself rather than relying on the URL pattern for protection. */
-    @GetMapping("/me")
-    public ResponseEntity<?> me() {
-        var auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null || !(auth.getPrincipal() instanceof com.rule1.tracker.security.JwtAuthFilter.AuthenticatedUser principal)) {
-            return ResponseEntity.status(401).build();
-        }
-        return userRepository.findById(principal.userId())
-                .map(u -> ResponseEntity.ok(new AuthResponse(null, u.getEmail(), u.getId(), u.getDisplayName())))
-                .orElse(ResponseEntity.notFound().build());
+        return ResponseEntity.ok(new AuthResponse(token, user.getEmail(), user.getId()));
     }
 }

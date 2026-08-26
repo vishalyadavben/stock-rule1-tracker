@@ -43,30 +43,20 @@ public class ChecklistController {
 
     public record ResponseInput(Long checklistItemId, Boolean isChecked, String freeText) {}
 
-    /**
-     * Upserts a checklist response. The previous version always inserted a new row, which
-     * violated the (user_id, stock_id, checklist_item_id) unique constraint on the second
-     * toggle of any checkbox — that DB error is exactly what made checkboxes appear "not
-     * working." Now we look up any existing response first and update it in place.
-     */
     @PostMapping("/{ticker}/responses")
     public ResponseEntity<ChecklistResponse> saveResponse(@PathVariable String ticker, @RequestBody ResponseInput input) {
         Stock stock = stockRepository.findByTicker(ticker.toUpperCase())
                 .orElseThrow(() -> new RuntimeException("Stock not found"));
-        Long userId = CurrentUser.id();
 
-        ChecklistResponse resp = responseRepository
-                .findByUserIdAndStockId(userId, stock.getId()).stream()
-                .filter(r -> r.getChecklistItemId().equals(input.checklistItemId()))
-                .findFirst()
-                .orElseGet(ChecklistResponse::new);
-
-        resp.setUserId(userId);
+        ChecklistResponse resp = new ChecklistResponse();
+        resp.setUserId(CurrentUser.id());
         resp.setStockId(stock.getId());
         resp.setChecklistItemId(input.checklistItemId());
         resp.setIsChecked(input.isChecked());
         resp.setFreeText(input.freeText());
         resp.setUpdatedAt(LocalDateTime.now());
+        // Note: relies on the DB unique constraint (user_id, stock_id, checklist_item_id);
+        // a production version should find-then-update instead of always inserting.
         return ResponseEntity.ok(responseRepository.save(resp));
     }
 }

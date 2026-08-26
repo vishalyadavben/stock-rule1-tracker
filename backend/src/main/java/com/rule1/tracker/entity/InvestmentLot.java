@@ -33,9 +33,6 @@ public class InvestmentLot {
     @Column(name = "remaining_quantity")
     private BigDecimal remainingQuantity;
 
-    @Column(name = "is_paper_money")
-    private Boolean isPaperMoney = false;
-
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

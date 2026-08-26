@@ -1,113 +1,53 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { stocks, checklist, stickerPrice, score, exportApi, watchlist } from '../api/api.js';
-import { currencySymbol, formatMoney } from '../utils/currency.js';
+import { stocks, checklist, stickerPrice, score } from '../api/api.js';
 
 const emptyManualForm = {
   fiscalYear: new Date().getFullYear(), sales: '', eps: '', equity: '',
   freeCashFlow: '', longTermDebt: '', sharesOut: '', roicPct: '',
 };
 
-function growthCell(rates, key) {
-  if (!rates) return '—';
-  const v = rates[key];
-  if (v === null || v === undefined) return <span style={{ color: '#94a3b8' }}>n/a</span>;
-  const pass = Number(v) >= 10;
-  return <span className={pass ? 'positive' : 'negative'}>{v}%</span>;
-}
-
 export default function StockDetail() {
   const { ticker } = useParams();
-  const [stockInfo, setStockInfo] = useState(null);
-  const [bigFiveSource, setBigFiveSource] = useState(() => localStorage.getItem(`bigFiveSource:${ticker}`) || 'API');
+  const [bigFiveSource, setBigFiveSource] = useState('API'); // 'API' | 'MANUAL'
   const [bigFive, setBigFive] = useState([]);
-  const [growthRates, setGrowthRates] = useState(null);
-  const [growthYears, setGrowthYears] = useState('10,5,3,1');
-  const [customYears, setCustomYears] = useState('');
   const [bigFiveError, setBigFiveError] = useState('');
   const [refreshingBigFive, setRefreshingBigFive] = useState(false);
   const [manualForm, setManualForm] = useState(emptyManualForm);
-  const [editingYear, setEditingYear] = useState(null);
   const [items, setItems] = useState([]);
   const [responses, setResponses] = useState({});
   const [businessScore, setBusinessScore] = useState(null);
   const [sp, setSp] = useState({ currentEps: '', estimatedGrowthPct: '', estimatedFuturePe: '', minAcceptableReturnPct: '15' });
   const [spResult, setSpResult] = useState(null);
   const [spError, setSpError] = useState('');
-  const [showCheatSheet, setShowCheatSheet] = useState(false);
-  const [manualPriceValue, setManualPriceValue] = useState('');
-  const [showManualPrice, setShowManualPrice] = useState(false);
-  const [priceError, setPriceError] = useState('');
 
-  const currency = stockInfo?.currency || 'USD';
-  const symbol = currencySymbol(currency);
-
-  const loadBigFive = async (src, years) => {
+  const loadBigFive = async (source) => {
     setBigFiveError('');
     try {
-      const [bf, gr] = await Promise.all([
-        stocks.getBigFiveBySource(ticker, src),
-        stocks.growthRates(ticker, src, years),
-      ]);
-      setBigFive(bf.data);
-      setGrowthRates(gr.data);
+      const res = await stocks.getBigFiveBySource(ticker, source);
+      setBigFive(res.data);
     } catch (err) {
       setBigFiveError('Could not load Big Five data.');
     }
   };
 
   const loadAll = async () => {
-    // Registers this stock under "My Companies" even if reached by direct link, so it's
-    // always findable again later — this is what fixes data appearing to "disappear."
-    await stocks.add(ticker).catch(() => {});
-    await watchlist.add(ticker).catch(() => {});
-
-    const [info, ci, cr, sc] = await Promise.all([
-      stocks.get(ticker).catch(() => null),
+    const [ci, cr, sc] = await Promise.all([
       checklist.items(),
       checklist.responses(ticker),
       score.get(ticker).catch(() => null),
     ]);
-    setStockInfo(info?.data || null);
     setItems(ci.data);
     const respMap = {};
     cr.data.forEach((r) => { respMap[r.checklistItemId] = r; });
     setResponses(respMap);
     setBusinessScore(sc?.data || null);
-
-    // Auto-detect which source actually has data, so returning to this page doesn't look like
-    // your Big Five "disappeared" just because it defaulted to the empty tab.
-    let sourceToShow = bigFiveSource;
-    try {
-      const [apiCheck, manualCheck] = await Promise.all([
-        stocks.getBigFiveBySource(ticker, 'API'),
-        stocks.getBigFiveBySource(ticker, 'MANUAL'),
-      ]);
-      const remembered = localStorage.getItem(`bigFiveSource:${ticker}`);
-      if (remembered === 'API' && apiCheck.data.length > 0) sourceToShow = 'API';
-      else if (remembered === 'MANUAL' && manualCheck.data.length > 0) sourceToShow = 'MANUAL';
-      else if (apiCheck.data.length > 0) sourceToShow = 'API';
-      else if (manualCheck.data.length > 0) sourceToShow = 'MANUAL';
-    } catch { /* fall through to default */ }
-    setBigFiveSource(sourceToShow);
-    loadBigFive(sourceToShow, growthYears);
+    loadBigFive(bigFiveSource);
   };
 
   useEffect(() => { loadAll(); }, [ticker]);
-
-  useEffect(() => {
-    localStorage.setItem(`bigFiveSource:${ticker}`, bigFiveSource);
-    loadBigFive(bigFiveSource, growthYears);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bigFiveSource]);
-
-  const applyCustomYears = () => {
-    const cleaned = customYears.split(',').map((s) => s.trim()).filter(Boolean).join(',');
-    const combined = cleaned ? `10,5,3,1,${cleaned}` : '10,5,3,1';
-    setGrowthYears(combined);
-    loadBigFive(bigFiveSource, combined);
-  };
+  useEffect(() => { loadBigFive(bigFiveSource); }, [bigFiveSource]);
 
   const refreshBigFive = async () => {
     setRefreshingBigFive(true);
@@ -118,46 +58,12 @@ export default function StockDetail() {
         setBigFiveError(res.data.error);
       } else {
         setBigFiveSource('API');
+        loadBigFive('API');
       }
     } catch (err) {
       setBigFiveError(err.response?.data?.error || 'Refresh failed.');
     }
     setRefreshingBigFive(false);
-  };
-
-  const refreshPrice = async () => {
-    setPriceError('');
-    try {
-      const res = await stocks.refreshPrice(ticker);
-      if (res.data?.error) setPriceError(res.data.error);
-      else setStockInfo(res.data);
-    } catch (err) {
-      setPriceError(err.response?.data?.error || 'Price fetch failed.');
-    }
-  };
-
-  const submitManualPrice = async (e) => {
-    e.preventDefault();
-    const res = await stocks.setManualPrice(ticker, Number(manualPriceValue));
-    setStockInfo(res.data);
-    setShowManualPrice(false);
-    setManualPriceValue('');
-  };
-
-  const editYear = (row) => {
-    setManualForm({
-      fiscalYear: row.fiscalYear,
-      sales: row.sales ?? '', eps: row.eps ?? '', equity: row.equity ?? '',
-      freeCashFlow: row.freeCashFlow ?? '', longTermDebt: row.longTermDebt ?? '',
-      sharesOut: row.sharesOut ?? '', roicPct: row.roicPct ?? '',
-    });
-    setEditingYear(row.fiscalYear);
-    setBigFiveSource('MANUAL');
-  };
-
-  const cancelEdit = () => {
-    setManualForm(emptyManualForm);
-    setEditingYear(null);
   };
 
   const submitManual = async (e) => {
@@ -172,15 +78,9 @@ export default function StockDetail() {
       sharesOut: manualForm.sharesOut === '' ? null : Number(manualForm.sharesOut),
       roicPct: manualForm.roicPct === '' ? null : Number(manualForm.roicPct),
     });
-    cancelEdit();
+    setManualForm(emptyManualForm);
     setBigFiveSource('MANUAL');
-    loadBigFive('MANUAL', growthYears);
-  };
-
-  const deleteYear = async (source, fiscalYear) => {
-    if (!window.confirm(`Delete ${fiscalYear} (${source}) Big Five data for ${ticker}? This cannot be undone.`)) return;
-    await stocks.deleteBigFiveYear(ticker, source, fiscalYear);
-    loadBigFive(bigFiveSource, growthYears);
+    loadBigFive('MANUAL');
   };
 
   const toggleCheck = async (itemId) => {
@@ -223,19 +123,7 @@ export default function StockDetail() {
       minAcceptableReturnPct: Number(sp.minAcceptableReturnPct),
     });
     setSpResult(res.data);
-    loadAll();
-  };
-
-  const downloadReport = async () => {
-    const res = await exportApi.stockReport(ticker);
-    const url = window.URL.createObjectURL(new Blob([res.data]));
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `${ticker}-report.html`);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
+    loadAll(); // refresh score, which factors in margin-of-safety comparison
   };
 
   const chartData = bigFive.map((m) => ({
@@ -248,38 +136,9 @@ export default function StockDetail() {
     return acc;
   }, {});
 
-  const growthColumns = growthYears.split(',').map((s) => s.trim()).filter(Boolean);
-
   return (
     <div className="container">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-        <h1>{ticker} <span style={{ fontSize: 14, color: '#94a3b8' }}>({currency})</span></h1>
-        <button onClick={downloadReport}>Download report</button>
-      </div>
-
-      <div className="card">
-        <h3>Current price</h3>
-        <p>
-          {stockInfo?.lastPrice ? formatMoney(stockInfo.lastPrice, currency) : <span style={{ color: '#94a3b8' }}>not set</span>}
-          {stockInfo?.priceSource && (
-            <span className={`badge ${stockInfo.priceSource === 'API' ? 'pass' : 'fail'}`} style={{ marginLeft: 8 }}>
-              {stockInfo.priceSource === 'API' ? 'Live' : 'Manual'}
-            </span>
-          )}
-        </p>
-        {priceError && <p className="negative">{priceError}</p>}
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button title="Fetch the live market price from Alpha Vantage" onClick={refreshPrice}>🔄 Refresh from API</button>
-          <button title="Enter the current market price yourself" onClick={() => setShowManualPrice(!showManualPrice)}>✏️ Set current price manually</button>
-        </div>
-        {showManualPrice && (
-          <form onSubmit={submitManualPrice} style={{ display: 'flex', gap: 10, marginTop: 10 }}>
-            <input placeholder={`Price (${currency})`} type="number" step="any"
-                   value={manualPriceValue} onChange={(e) => setManualPriceValue(e.target.value)} required />
-            <button type="submit">Save</button>
-          </form>
-        )}
-      </div>
+      <h1>{ticker}</h1>
 
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
@@ -289,14 +148,11 @@ export default function StockDetail() {
               <option value="API">API-fetched data</option>
               <option value="MANUAL">Manually entered data</option>
             </select>
-            <button title="Fetch fresh fundamentals from Alpha Vantage" onClick={refreshBigFive} disabled={refreshingBigFive}>
-              {refreshingBigFive ? 'Refreshing…' : '🔄 Refresh from API'}
+            <button onClick={refreshBigFive} disabled={refreshingBigFive}>
+              {refreshingBigFive ? 'Refreshing…' : 'Refresh from API'}
             </button>
           </div>
         </div>
-        <p style={{ marginTop: 4 }}>
-          <Link to="/learn#big-five-detailed">Not sure what these numbers mean? Learn them here →</Link>
-        </p>
 
         {bigFiveError && <p className="negative" style={{ marginTop: 10 }}>{bigFiveError}</p>}
 
@@ -310,72 +166,20 @@ export default function StockDetail() {
               <YAxis stroke="#94a3b8" />
               <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155' }} />
               <Legend />
-              <Line type="monotone" dataKey="Sales" stroke="#60a5fa" connectNulls />
-              <Line type="monotone" dataKey="EPS" stroke="#4ade80" connectNulls />
-              <Line type="monotone" dataKey="Equity" stroke="#facc15" connectNulls />
-              <Line type="monotone" dataKey="FCF" stroke="#f472b6" connectNulls />
-              <Line type="monotone" dataKey="ROIC" stroke="#c084fc" connectNulls />
+              <Line type="monotone" dataKey="Sales" stroke="#60a5fa" />
+              <Line type="monotone" dataKey="EPS" stroke="#4ade80" />
+              <Line type="monotone" dataKey="Equity" stroke="#facc15" />
+              <Line type="monotone" dataKey="FCF" stroke="#f472b6" />
+              <Line type="monotone" dataKey="ROIC" stroke="#c084fc" />
             </LineChart>
           </ResponsiveContainer>
         )}
 
-        <h4 style={{ marginTop: 20 }}>Growth rates</h4>
-        <p style={{ color: '#94a3b8', fontSize: 13 }}>
-          Each metric is calculated independently — a gap in one never blocks seeing the others.
-        </p>
-        <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
-          <input placeholder="Add custom year window, e.g. 7" value={customYears}
-                 onChange={(e) => setCustomYears(e.target.value)} style={{ width: 220 }} />
-          <button onClick={applyCustomYears}>Show</button>
-        </div>
-        <table>
-          <thead>
-            <tr>
-              <th>Metric</th>
-              {growthColumns.map((y) => <th key={y}>{y}yr</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            <tr><td>Sales</td>{growthColumns.map((y) => <td key={y}>{growthCell(growthRates?.sales, `${y}yr`)}</td>)}</tr>
-            <tr><td>EPS</td>{growthColumns.map((y) => <td key={y}>{growthCell(growthRates?.eps, `${y}yr`)}</td>)}</tr>
-            <tr><td>Equity</td>{growthColumns.map((y) => <td key={y}>{growthCell(growthRates?.equity, `${y}yr`)}</td>)}</tr>
-            <tr><td>Free Cash Flow</td>{growthColumns.map((y) => <td key={y}>{growthCell(growthRates?.freeCashFlow, `${y}yr`)}</td>)}</tr>
-            <tr><td>ROIC (average)</td>{growthColumns.map((y) => <td key={y}>{growthCell(growthRates?.roic, `${y}yr`)}</td>)}</tr>
-          </tbody>
-        </table>
-
-        {bigFiveSource === 'MANUAL' && bigFive.length > 0 && (
-          <>
-            <h4 style={{ marginTop: 20 }}>Manual entries (edit or delete)</h4>
-            <table>
-              <thead><tr><th>Year</th><th>Sales</th><th>EPS</th><th>Equity</th><th>FCF</th><th></th></tr></thead>
-              <tbody>
-                {bigFive.map((row) => (
-                  <tr key={row.fiscalYear}>
-                    <td>{row.fiscalYear}</td>
-                    <td>{row.sales ?? '—'}</td>
-                    <td>{row.eps ?? '—'}</td>
-                    <td>{row.equity ?? '—'}</td>
-                    <td>{row.freeCashFlow ?? '—'}</td>
-                    <td style={{ display: 'flex', gap: 6 }}>
-                      <button onClick={() => editYear(row)}>Edit</button>
-                      <button onClick={() => deleteYear('MANUAL', row.fiscalYear)}>Delete</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </>
-        )}
-
-        <details style={{ marginTop: 16 }} open={editingYear !== null}>
-          <summary style={{ cursor: 'pointer', color: '#60a5fa' }}>
-            {editingYear !== null ? `Editing ${editingYear}` : "Enter a year's Big Five manually"}
-          </summary>
+        <details style={{ marginTop: 16 }}>
+          <summary style={{ cursor: 'pointer', color: '#60a5fa' }}>Enter a year's Big Five manually</summary>
           <form onSubmit={submitManual} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12 }}>
             <input placeholder="Fiscal year" type="number" value={manualForm.fiscalYear}
-                   onChange={(e) => setManualForm({ ...manualForm, fiscalYear: e.target.value })} required style={{ width: 110 }}
-                   disabled={editingYear !== null} />
+                   onChange={(e) => setManualForm({ ...manualForm, fiscalYear: e.target.value })} required style={{ width: 110 }} />
             <input placeholder="Sales" type="number" step="any" value={manualForm.sales}
                    onChange={(e) => setManualForm({ ...manualForm, sales: e.target.value })} />
             <input placeholder="EPS" type="number" step="any" value={manualForm.eps}
@@ -390,36 +194,13 @@ export default function StockDetail() {
                    onChange={(e) => setManualForm({ ...manualForm, sharesOut: e.target.value })} />
             <input placeholder="ROIC %" type="number" step="any" value={manualForm.roicPct}
                    onChange={(e) => setManualForm({ ...manualForm, roicPct: e.target.value })} />
-            <button type="submit">{editingYear !== null ? 'Save changes' : 'Save year'}</button>
-            {editingYear !== null && <button type="button" onClick={cancelEdit}>Cancel</button>}
+            <button type="submit">Save year</button>
           </form>
         </details>
       </div>
 
       <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h3>Sticker Price calculator</h3>
-          <button onClick={() => setShowCheatSheet(!showCheatSheet)}>
-            {showCheatSheet ? 'Hide' : 'How is this calculated?'}
-          </button>
-        </div>
-
-        {showCheatSheet && (
-          <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, padding: 14, marginBottom: 14, fontSize: 14 }}>
-            <ol style={{ margin: 0, paddingLeft: 20 }}>
-              <li>Grow <b>current EPS</b> at your <b>estimated growth rate</b> for 10 years → future EPS.
-                  This grows the EPS number itself — but per the book, the growth <i>rate</i> you
-                  plug in should come from historical <b>equity</b> growth, not historical EPS
-                  growth (equity growth is the better predictor of future EPS growth). That's
-                  exactly what "Auto-fill from Big Five" does above.</li>
-              <li>Multiply future EPS by an <b>estimated future PE</b> (default: 2× the growth rate) → future price.</li>
-              <li>Discount that back over 10 years at your <b>minimum acceptable rate of return</b> → Sticker Price.</li>
-              <li><b>Margin of Safety price</b> = 50% of Sticker Price — your target buy price.</li>
-            </ol>
-            <p style={{ marginTop: 8, marginBottom: 0 }}><Link to="/learn">Full reference on the Learn page →</Link></p>
-          </div>
-        )}
-
+        <h3>Sticker Price calculator</h3>
         <div style={{ marginBottom: 12 }}>
           <button onClick={autoFillFromBigFive}>
             Auto-fill from {bigFiveSource === 'API' ? 'API-fetched' : 'manually entered'} Big Five
@@ -430,7 +211,7 @@ export default function StockDetail() {
         </div>
         {spError && <p className="negative">{String(spError)}</p>}
         <form onSubmit={calcSticker} style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <input placeholder={`Current EPS (${symbol})`} type="number" step="any" value={sp.currentEps}
+          <input placeholder="Current EPS" type="number" step="any" value={sp.currentEps}
                  onChange={(e) => setSp({ ...sp, currentEps: e.target.value })} required />
           <input placeholder="Est. growth % (e.g. 15)" type="number" step="any" value={sp.estimatedGrowthPct}
                  onChange={(e) => setSp({ ...sp, estimatedGrowthPct: e.target.value })} required />
@@ -442,10 +223,10 @@ export default function StockDetail() {
         </form>
         {spResult && (
           <div style={{ marginTop: 16 }}>
-            <p>Future EPS (10yr): <b>{symbol}{spResult.futureEps10y}</b></p>
-            <p>Future price: <b>{symbol}{spResult.futurePrice}</b></p>
-            <p>Sticker Price: <b style={{ color: '#4ade80' }}>{symbol}{spResult.stickerPrice}</b></p>
-            <p>Margin-of-Safety buy price (50%): <b style={{ color: '#facc15' }}>{symbol}{spResult.marginOfSafetyPrice}</b></p>
+            <p>Future EPS (10yr): <b>${spResult.futureEps10y}</b></p>
+            <p>Future price: <b>${spResult.futurePrice}</b></p>
+            <p>Sticker Price: <b style={{ color: '#4ade80' }}>${spResult.stickerPrice}</b></p>
+            <p>Margin-of-Safety buy price (50%): <b style={{ color: '#facc15' }}>${spResult.marginOfSafetyPrice}</b></p>
           </div>
         )}
       </div>
@@ -454,7 +235,7 @@ export default function StockDetail() {
         <h3>Four Ms checklist</h3>
         {Object.entries(grouped).map(([category, catItems]) => (
           <div key={category} style={{ marginBottom: 16 }}>
-            <h4>{category.replace(/_/g, ' ')}</h4>
+            <h4>{category.replace('_', ' ')}</h4>
             {catItems.map((item) => (
               <div key={item.id} style={{ marginBottom: 10 }}>
                 <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>

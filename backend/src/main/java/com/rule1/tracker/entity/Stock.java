@@ -29,12 +29,6 @@ public class Stock {
     @Column(name = "last_price_at")
     private LocalDateTime lastPriceAt;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "price_source")
-    private PriceSource priceSource;
-
-    public enum PriceSource { API, MANUAL }
-
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 }

@@ -1,4 +1,4 @@
 -- Distinguishes practice/paper-money buys from real-money buys. Paper positions can be
 -- deleted outright (they were never real money); real positions never can be, by design —
 -- deleting real trade history would falsify your actual investment record.
-ALTER TABLE investment_lots ADD COLUMN is_paper_money BOOLEAN NOT NULL DEFAULT FALSE;
+--ALTER TABLE investment_lots ADD COLUMN is_paper_money BOOLEAN NOT NULL DEFAULT FALSE;
