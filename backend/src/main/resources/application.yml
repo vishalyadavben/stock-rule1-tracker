@@ -8,11 +8,15 @@ spring:
     password: ${DB_PASSWORD:root}
   jpa:
     hibernate:
-      ddl-auto: validate    # schema.sql is the source of truth; app should never guess-alter tables
+      ddl-auto: validate    # Flyway owns schema changes; Hibernate only ever validates against it
     show-sql: false
     properties:
       hibernate:
         format_sql: true
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
 
 jwt:
   secret: ${JWT_SECRET:change-this-to-a-long-random-string-in-prod}

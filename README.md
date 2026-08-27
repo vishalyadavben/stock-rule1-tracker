@@ -69,9 +69,49 @@ Visit `http://localhost:5173`.
 
 ---
 
-## 4. Using it day to day
+## 4. Schema changes are now handled by Flyway — you should never need `down -v` again
 
-1. **Register / log in.**
+The database schema is version-controlled as numbered SQL files in
+`backend/src/main/resources/db/migration/` (e.g. `V1__init_schema.sql`, `V2__add_user_notes.sql`).
+On every backend startup, Flyway checks which migrations have already run (tracked in a
+`flyway_schema_history` table it manages itself) and applies only the new ones — against your
+**existing** data, with nothing wiped.
+
+**Going forward, adding a table or column means:** add a new file named
+`V3__something_descriptive.sql` (numbers must increase, never reused) to that folder, then just
+restart the backend normally. That's the entire process — no `docker compose down -v`, ever,
+for a schema change.
+
+**One-time transition note:** since your existing local database was created by the old
+`schema.sql` init script (before Flyway existed in this project), this update needs exactly one
+more `docker compose down -v` to let Flyway establish a clean baseline. After that, this
+category of data loss risk is gone for good — only re-run `down -v` if you deliberately want to
+wipe everything.
+
+## 5. Protecting against actual data loss (Flyway doesn't cover this)
+
+Flyway solves *schema* changes forcing a wipe. It does **not** protect you from accidentally
+running `docker compose down -v` yourself, a bad migration, or any other mishap — for that you
+need actual backups. Two easy options:
+
+**Manual backup before anything risky:**
+```bash
+docker compose exec mysql mysqldump -uroot -proot rule1_tracker > backup-$(date +%Y%m%d).sql
+```
+This dumps your entire database (accounts, holdings, Big Five data, everything) to a plain SQL
+file you can restore from later with:
+```bash
+docker compose exec -T mysql mysql -uroot -proot rule1_tracker < backup-20260101.sql
+```
+
+**Better, once you're doing real analysis you care about:** move off the local Docker database
+as your source of truth and use the Railway-hosted MySQL from the deployment guide instead.
+Railway's managed database isn't subject to your local `docker compose down -v` at all — that
+command only ever touches your local machine's containers — and Railway offers its own
+automatic backup/restore on paid plans. Local Docker is great for development; it was never
+meant to be where your only copy of real data lives.
+
+## 6. Using it day to day
 2. **Dashboard → "Record a buy"**: enter a ticker, quantity, buy price. This auto-adds the
    stock to the master list and pulls its current price.
 3. **Click into a stock** (`/stock/AAPL`):
@@ -99,7 +139,7 @@ Visit `http://localhost:5173`.
 
 ---
 
-## 5. Deployment recommendation
+## 7. Deployment recommendation
 
 Don't reach for Kubernetes or a full AWS microservices setup for this — it's you and a few
 friends, not a SaaS company. Two solid options:
@@ -122,7 +162,7 @@ never commit them**, and turn on HTTPS (Railway/Render/Vercel do this for you au
 
 ---
 
-## 6. Blind spots you didn't mention (worth deciding on before/while you build this out)
+## 8. Blind spots you didn't mention (worth deciding on before/while you build this out)
 
 1. **API rate limits will bite you fast.** Alpha Vantage free tier = 25 requests/day total,
    shared across ALL your users' tickers. With a handful of friends each tracking 10 stocks,
@@ -161,7 +201,7 @@ never commit them**, and turn on HTTPS (Railway/Render/Vercel do this for you au
 
 ---
 
-## 7. Why a monolith, not microservices
+## 9. Why a monolith, not microservices
 
 You mentioned microservices "if needed." For this app's scale (you + friends), a single
 Spring Boot service is:

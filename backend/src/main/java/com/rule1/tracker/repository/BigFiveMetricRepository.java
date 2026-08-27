@@ -7,4 +7,5 @@ import java.util.List;
 public interface BigFiveMetricRepository extends JpaRepository<BigFiveMetric, Long> {
     List<BigFiveMetric> findByStockIdOrderByFiscalYearAsc(Long stockId);
     List<BigFiveMetric> findByStockIdAndSourceOrderByFiscalYearAsc(Long stockId, BigFiveMetric.Source source);
+    java.util.Optional<BigFiveMetric> findByStockIdAndFiscalYearAndSource(Long stockId, Integer fiscalYear, BigFiveMetric.Source source);
 }

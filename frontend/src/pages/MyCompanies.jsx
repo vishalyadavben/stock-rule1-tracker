@@ -13,7 +13,7 @@ export default function MyCompanies() {
 
   return (
     <div className="container">
-      <h1>My Companies</h1>
+      <h1 title="Every stock you've searched or bought">My Companies</h1>
       <p style={{ color: '#94a3b8' }}>
         Every stock you've searched, bought, or researched — Big Five and checklist data are
         saved here permanently and never disappear when you navigate away.

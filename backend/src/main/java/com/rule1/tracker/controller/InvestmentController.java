@@ -46,7 +46,12 @@ public class InvestmentController {
         List<Long> stockIds = lots.stream().map(InvestmentLot::getStockId).distinct().toList();
 
         Map<String, String> results = new java.util.LinkedHashMap<>();
+        boolean first = true;
         for (Long stockId : stockIds) {
+            if (!first) {
+                try { Thread.sleep(1200); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+            }
+            first = false;
             Stock stock = stockRepository.findById(stockId).orElse(null);
             if (stock == null) continue;
             try {
@@ -93,8 +98,11 @@ public class InvestmentController {
             return new HoldingView(
                     lot.getId(), stock != null ? stock.getTicker() : "?",
                     stock != null ? stock.getCompanyName() : null,
+                    stock != null ? stock.getCurrency() : "USD",
                     lot.getQuantity(), lot.getRemainingQuantity(), lot.getBuyPrice(), lot.getBuyDate(),
-                    currentPrice, unrealizedGain, unrealizedGainPct, lot.getStatus().name()
+                    currentPrice, stock != null && stock.getPriceSource() != null ? stock.getPriceSource().name() : null,
+                    unrealizedGain, unrealizedGainPct, lot.getStatus().name(),
+                    lot.getIsPaperMoney() != null && lot.getIsPaperMoney()
             );
         }).toList();
 
@@ -117,12 +125,82 @@ public class InvestmentController {
                     id -> stockRepository.findById(id).orElse(null));
             return new ExitHistoryView(
                     exit.getId(), exit.getLotId(), stock != null ? stock.getTicker() : "?",
+                    stock != null ? stock.getCurrency() : "USD",
                     exit.getQuantitySold(), exit.getSellPrice(), exit.getSellDate(),
                     lot != null ? lot.getBuyPrice() : null, lot != null ? lot.getBuyDate() : null,
-                    exit.getRealizedGain(), exit.getRealizedGainPct(), exit.getNotes()
+                    exit.getRealizedGain(), exit.getRealizedGainPct(), exit.getNotes(),
+                    lot != null && lot.getIsPaperMoney() != null && lot.getIsPaperMoney()
             );
         }).toList();
 
         return ResponseEntity.ok(views);
+    }
+
+    /** Deletes a paper-money lot (and its exit history, via DB cascade). Real-money lots are
+     *  always rejected here — enforced in the service layer, not just the UI. Use
+     *  /lots/{lotId}/delete-confirmed for real-money positions instead. */
+    @DeleteMapping("/lots/{lotId}")
+    public ResponseEntity<?> deleteLot(@PathVariable Long lotId) {
+        try {
+            investmentService.deleteLot(CurrentUser.id(), lotId);
+            return ResponseEntity.noContent().build();
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(403).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    public record EditLotRequest(BigDecimal buyPrice, LocalDateTime buyDate, String password) {}
+
+    /** Edits a lot's buy price / buy date. Works for both paper and real money — password is
+     *  only actually checked when the lot is real money (see InvestmentService for why). */
+    @PutMapping("/lots/{lotId}")
+    public ResponseEntity<?> editLot(@PathVariable Long lotId, @RequestBody EditLotRequest req) {
+        try {
+            return ResponseEntity.ok(investmentService.editLot(
+                    CurrentUser.id(), lotId, req.buyPrice(), req.buyDate(), req.password()));
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(403).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    public record ConfirmedDeleteRequest(String password) {}
+
+    /** Deletes ANY lot (paper or real) after verifying the user's password — this is the path
+     *  that makes real-money positions deletable at all: not freely, only with an explicit
+     *  re-confirmation of identity first. */
+    @PostMapping("/lots/{lotId}/delete-confirmed")
+    public ResponseEntity<?> deleteLotConfirmed(@PathVariable Long lotId, @RequestBody ConfirmedDeleteRequest req) {
+        try {
+            investmentService.deleteLotWithPasswordConfirmation(CurrentUser.id(), lotId, req.password());
+            return ResponseEntity.noContent().build();
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(403).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    public record EditExitRequest(BigDecimal sellPrice, LocalDateTime sellDate, String notes, String password) {}
+
+    /** Edits a sell record — password required and checked only if the underlying lot is
+     *  real money. */
+    @PutMapping("/exits/{exitId}")
+    public ResponseEntity<?> editExit(@PathVariable Long exitId, @RequestBody EditExitRequest req) {
+        try {
+            return ResponseEntity.ok(investmentService.editExit(
+                    CurrentUser.id(), exitId, req.sellPrice(), req.sellDate(), req.notes(), req.password()));
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(403).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /** Deletes a sell record and restores the sold quantity back onto the lot. Password
+     *  required and checked only if the underlying lot is real money. */
+    @PostMapping("/exits/{exitId}/delete-confirmed")
+    public ResponseEntity<?> deleteExit(@PathVariable Long exitId, @RequestBody ConfirmedDeleteRequest req) {
+        try {
+            investmentService.deleteExit(CurrentUser.id(), exitId, req.password());
+            return ResponseEntity.noContent().build();
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(403).body(Map.of("error", e.getMessage()));
+        }
     }
 }

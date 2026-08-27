@@ -13,16 +13,20 @@ api.interceptors.request.use((config) => {
 export const auth = {
   register: (data) => api.post('/auth/register', data),
   login: (data) => api.post('/auth/login', data),
+  me: () => api.get('/auth/me'),
 };
 
 export const stocks = {
-  add: (ticker) => api.post(`/stocks/${ticker}`),
+  add: (ticker, currency) => api.post(`/stocks/${ticker}`, null, { params: currency ? { currency } : {} }),
   get: (ticker) => api.get(`/stocks/${ticker}`),
   refreshPrice: (ticker) => api.post(`/stocks/${ticker}/refresh-price`),
+  setManualPrice: (ticker, price) => api.post(`/stocks/${ticker}/manual-price`, { price }),
   refreshBigFive: (ticker) => api.post(`/stocks/${ticker}/refresh-big-five`),
   saveManualBigFive: (ticker, data) => api.post(`/stocks/${ticker}/big-five/manual`, data),
   getBigFive: (ticker) => api.get(`/stocks/${ticker}/big-five`),
   getBigFiveBySource: (ticker, source) => api.get(`/stocks/${ticker}/big-five/${source}`),
+  deleteBigFiveYear: (ticker, source, fiscalYear) => api.delete(`/stocks/${ticker}/big-five/${source}/${fiscalYear}`),
+  growthRates: (ticker, source, years) => api.get(`/stocks/${ticker}/growth-rates`, { params: { source, years } }),
 };
 
 export const investments = {
@@ -31,6 +35,11 @@ export const investments = {
   holdings: () => api.get('/investments/holdings'),
   history: () => api.get('/investments/history'),
   refreshPrices: () => api.post('/investments/refresh-prices'),
+  deleteLot: (lotId) => api.delete(`/investments/lots/${lotId}`),
+  editLot: (lotId, data) => api.put(`/investments/lots/${lotId}`, data),
+  deleteLotConfirmed: (lotId, password) => api.post(`/investments/lots/${lotId}/delete-confirmed`, { password }),
+  editExit: (exitId, data) => api.put(`/investments/exits/${exitId}`, data),
+  deleteExitConfirmed: (exitId, password) => api.post(`/investments/exits/${exitId}/delete-confirmed`, { password }),
 };
 
 export const stickerPrice = {
@@ -42,6 +51,23 @@ export const stickerPrice = {
 
 export const exportApi = {
   csv: () => api.get('/export/csv', { responseType: 'blob' }),
+  stockReport: (ticker) => api.get(`/export/report/${ticker}`, { responseType: 'blob' }),
+};
+
+export const notes = {
+  list: () => api.get('/notes'),
+  create: (content) => api.post('/notes', { content }),
+  remove: (id) => api.delete(`/notes/${id}`),
+};
+
+export const exchangeRate = {
+  get: (from, to) => api.get('/exchange-rate', { params: { from, to } }),
+};
+
+// Alias used by Dashboard's currency-conversion feature — same endpoint, kept as a separate
+// export name for readability at the call site (fx.rate(...) reads more naturally there).
+export const fx = {
+  rate: (from, to) => api.get('/exchange-rate', { params: { from, to } }),
 };
 
 export const checklist = {

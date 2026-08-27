@@ -1,4 +1,9 @@
--- Rule #1 Investing Tracker — MySQL schema
+-- ⚠️ SUPERSEDED — kept only for historical reference.
+-- Schema changes are now managed by Flyway migrations in
+-- backend/src/main/resources/db/migration/*.sql — that's the real source of truth.
+-- This file is no longer run by docker-compose and should not be edited or re-run manually.
+
+-- Rule #1 Investing Tracker — MySQL schema (original, pre-Flyway)
 
 CREATE DATABASE IF NOT EXISTS rule1_tracker;
 USE rule1_tracker;
@@ -155,6 +160,17 @@ CREATE TABLE business_scores (
     calculated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (stock_id) REFERENCES stocks(id) ON DELETE CASCADE
+);
+
+-- ==========================================================
+-- USER NOTES (freeform personal notes, not tied to any stock)
+-- ==========================================================
+CREATE TABLE user_notes (
+    id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id         BIGINT NOT NULL,
+    content         TEXT NOT NULL,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 -- ==========================================================

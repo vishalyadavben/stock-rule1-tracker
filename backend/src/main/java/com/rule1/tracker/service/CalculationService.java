@@ -39,20 +39,59 @@ public class CalculationService {
     }
 
     /**
-     * Given a sorted (oldest -> newest) list of yearly Big Five rows, compute the
-     * 10-yr / 5-yr / 1-yr growth rates for each metric, mirroring the book's
-     * recommendation to look at ROIC over three windows.
+     * Given a sorted (oldest -> newest) list of yearly Big Five rows, compute growth rates for
+     * each of the requested year windows (e.g. 10, 5, 3, 1) — any window the user wants to see,
+     * not just a fixed 10/5/1. If there isn't enough history for a given window (e.g. only 2
+     * years of data but a 10-year window was requested), that window returns null — it must
+     * NOT silently fall back to a shorter window while still labeling it "10yr", which would
+     * misrepresent a 1-year change as a 10-year growth rate.
      */
-    public Map<String, BigDecimal> computeGrowthRates(List<BigFiveMetric> yearlySorted, String field) {
+    public Map<String, BigDecimal> computeGrowthRates(List<BigFiveMetric> yearlySorted, String field, int... windows) {
         int n = yearlySorted.size();
-        if (n < 2) return Map.of();
+        Map<String, BigDecimal> result = new java.util.LinkedHashMap<>();
+        for (int window : windows) {
+            if (n - 1 < window) {
+                result.put(window + "yr", null); // not enough history to honestly support this window
+            } else {
+                result.put(window + "yr", growthFor(yearlySorted, field, window));
+            }
+        }
+        return result;
+    }
 
-        BigFiveMetric latest = yearlySorted.get(n - 1);
-        Map<String, BigDecimal> result = new java.util.HashMap<>();
+    /** Backward-compatible default: the original 10/5/1-year windows. */
+    public Map<String, BigDecimal> computeGrowthRates(List<BigFiveMetric> yearlySorted, String field) {
+        return computeGrowthRates(yearlySorted, field, 10, 5, 1);
+    }
 
-        result.put("10yr", growthFor(yearlySorted, field, Math.min(10, n - 1)));
-        result.put("5yr", growthFor(yearlySorted, field, Math.min(5, n - 1)));
-        result.put("1yr", growthFor(yearlySorted, field, 1));
+    /**
+     * Average ROIC over each requested year window — ROIC is already a yearly percentage, not
+     * a cumulative value, so "growth" doesn't apply the same way it does to Sales/EPS/Equity/
+     * FCF; what's useful instead is the mean over each window, shown the same way (10yr/5yr/
+     * 3yr/1yr) so it lines up visually with the other four metrics.
+     * Same honesty rule as computeGrowthRates: a "10yr" average requires 10 actual years of
+     * data — it does not quietly average over however few years happen to exist.
+     */
+    public Map<String, BigDecimal> averageRoic(List<BigFiveMetric> yearlySorted, int... windows) {
+        Map<String, BigDecimal> result = new java.util.LinkedHashMap<>();
+        int n = yearlySorted.size();
+        for (int window : windows) {
+            if (n < window) {
+                result.put(window + "yr", null);
+                continue;
+            }
+            List<BigFiveMetric> lastN = yearlySorted.subList(n - window, n);
+            List<BigDecimal> values = lastN.stream()
+                    .map(BigFiveMetric::getRoicPct)
+                    .filter(java.util.Objects::nonNull)
+                    .toList();
+            if (values.isEmpty()) {
+                result.put(window + "yr", null);
+                continue;
+            }
+            BigDecimal sum = values.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+            result.put(window + "yr", sum.divide(BigDecimal.valueOf(values.size()), 2, RoundingMode.HALF_UP));
+        }
         return result;
     }
 

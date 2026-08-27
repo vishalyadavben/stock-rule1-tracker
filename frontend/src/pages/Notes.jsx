@@ -28,7 +28,7 @@ export default function Notes() {
 
   return (
     <div className="container">
-      <h1>My Notes</h1>
+      <h1 title="Your personal freeform notes, visible every time you log in">My Notes</h1>
       <div className="card">
         <form onSubmit={add} style={{ display: 'flex', gap: 10 }}>
           <textarea
