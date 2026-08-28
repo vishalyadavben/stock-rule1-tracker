@@ -47,6 +47,7 @@ export const stickerPrice = {
   defaultPe: (growthPct) => api.get(`/sticker-price/default-pe?estimatedGrowthPct=${growthPct}`),
   history: (ticker) => api.get(`/sticker-price/history/${ticker}`),
   suggest: (ticker, source) => api.get(`/sticker-price/suggest/${ticker}?source=${source}`),
+  remove: (id) => api.delete(`/sticker-price/${id}`),
 };
 
 export const exportApi = {

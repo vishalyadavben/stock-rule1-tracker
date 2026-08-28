@@ -98,4 +98,17 @@ public class StickerPriceController {
                 .orElseThrow(() -> new RuntimeException("Stock not found"));
         return ResponseEntity.ok(repository.findByUserIdAndStockIdOrderByCalculatedAtDesc(CurrentUser.id(), stock.getId()));
     }
+
+    /** Deletes one saved Sticker Price calculation. Nothing is ever auto-deleted — the
+     *  frontend must get an explicit confirmation from the user before calling this. */
+    @DeleteMapping("/{id}")
+    public ResponseEntity<?> delete(@PathVariable Long id) {
+        var calc = repository.findById(id).orElse(null);
+        if (calc == null) return ResponseEntity.notFound().build();
+        if (!calc.getUserId().equals(CurrentUser.id())) {
+            return ResponseEntity.status(403).body("Not authorized for this calculation");
+        }
+        repository.delete(calc);
+        return ResponseEntity.noContent().build();
+    }
 }

@@ -35,6 +35,8 @@ export default function StockDetail() {
   const [sp, setSp] = useState({ currentEps: '', estimatedGrowthPct: '', estimatedFuturePe: '', minAcceptableReturnPct: '15' });
   const [spResult, setSpResult] = useState(null);
   const [spError, setSpError] = useState('');
+  const [spHistory, setSpHistory] = useState([]);
+  const [deletingCalcId, setDeletingCalcId] = useState(null);
   const [showCheatSheet, setShowCheatSheet] = useState(false);
   const [manualPriceValue, setManualPriceValue] = useState('');
   const [showManualPrice, setShowManualPrice] = useState(false);
@@ -94,7 +96,7 @@ export default function StockDetail() {
     loadBigFive(sourceToShow, growthYears);
   };
 
-  useEffect(() => { loadAll(); }, [ticker]);
+  useEffect(() => { loadAll(); loadStickerHistory(); }, [ticker]);
 
   useEffect(() => {
     localStorage.setItem(`bigFiveSource:${ticker}`, bigFiveSource);
@@ -212,6 +214,13 @@ export default function StockDetail() {
     }
   };
 
+  const loadStickerHistory = async () => {
+    try {
+      const res = await stickerPrice.history(ticker);
+      setSpHistory(res.data);
+    } catch { /* non-fatal — history just won't show */ }
+  };
+
   const calcSticker = async (e) => {
     e.preventDefault();
     setSpError('');
@@ -223,7 +232,16 @@ export default function StockDetail() {
       minAcceptableReturnPct: Number(sp.minAcceptableReturnPct),
     });
     setSpResult(res.data);
+    loadStickerHistory();
     loadAll();
+  };
+
+  const confirmDeleteCalc = (id) => setDeletingCalcId(id);
+
+  const deleteCalc = async (id) => {
+    await stickerPrice.remove(id);
+    setDeletingCalcId(null);
+    loadStickerHistory();
   };
 
   const downloadReport = async () => {
@@ -448,6 +466,53 @@ export default function StockDetail() {
             <p>Sticker Price: <b style={{ color: '#4ade80' }}>{symbol}{spResult.stickerPrice}</b></p>
             <p>Margin-of-Safety buy price (50%): <b style={{ color: '#facc15' }}>{symbol}{spResult.marginOfSafetyPrice}</b></p>
           </div>
+        )}
+
+        {spHistory.length > 0 && (
+          <>
+            <h4 style={{ marginTop: 24 }}>Saved calculations</h4>
+            <p style={{ color: '#94a3b8', fontSize: 13 }}>
+              Every calculation is saved permanently with the exact inputs used, so you can see
+              how your estimate changed over time. Nothing is deleted unless you confirm it below.
+            </p>
+            <table>
+              <thead>
+                <tr>
+                  <th>Date &amp; time</th><th>Current EPS</th><th>Growth %</th><th>Future PE</th>
+                  <th>Min return %</th><th>Sticker Price</th><th>MOS price</th><th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {spHistory.map((c) => (
+                  <React.Fragment key={c.id}>
+                    <tr>
+                      <td>{new Date(c.calculatedAt).toLocaleString()}</td>
+                      <td>{symbol}{c.currentEps}</td>
+                      <td>{c.estimatedGrowthPct}%</td>
+                      <td>{c.estimatedFuturePe}</td>
+                      <td>{c.minAcceptableReturn}%</td>
+                      <td style={{ color: '#4ade80' }}>{symbol}{c.stickerPrice}</td>
+                      <td style={{ color: '#facc15' }}>{symbol}{c.marginOfSafetyPrice}</td>
+                      <td><button className="btn-sm" onClick={() => confirmDeleteCalc(c.id)}>Delete</button></td>
+                    </tr>
+                    {deletingCalcId === c.id && (
+                      <tr>
+                        <td colSpan={8}>
+                          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                            <span className="negative" style={{ fontSize: 13 }}>
+                              ⚠ Delete this saved calculation from {new Date(c.calculatedAt).toLocaleString()}? This cannot be undone.
+                            </span>
+                            <button onClick={() => deleteCalc(c.id)}>Confirm delete</button>
+                            <button onClick={() => setDeletingCalcId(null)}>Cancel</button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </table>
+          </>
         )}
       </div>
 
