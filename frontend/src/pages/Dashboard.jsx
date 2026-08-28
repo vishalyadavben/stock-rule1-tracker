@@ -22,13 +22,12 @@ export default function Dashboard() {
   const [sellNotes, setSellNotes] = useState('');
   const [manualPriceLotId, setManualPriceLotId] = useState(null);
   const [manualPriceValue, setManualPriceValue] = useState('');
-  const [deleteError, setDeleteError] = useState('');
   const [editingLotId, setEditingLotId] = useState(null);
   const [editBuyPrice, setEditBuyPrice] = useState('');
   const [editBuyDate, setEditBuyDate] = useState('');
   const [editPassword, setEditPassword] = useState('');
   const [editError, setEditError] = useState('');
-  const [deletingRealLotId, setDeletingRealLotId] = useState(null);
+  const [showDeleteInEdit, setShowDeleteInEdit] = useState(false);
   const [deleteRealPassword, setDeleteRealPassword] = useState('');
   const [deleteRealError, setDeleteRealError] = useState('');
   const [displayCurrency, setDisplayCurrency] = useState('INR');
@@ -139,14 +138,14 @@ export default function Dashboard() {
     load();
   };
 
-  const deleteLot = async (lotId, ticker) => {
-    setDeleteError('');
-    if (!window.confirm(`Delete this paper-money position in ${ticker}? This also deletes any sell records for it. This cannot be undone.`)) return;
+  const deleteLot = async (lotId) => {
+    setDeleteRealError('');
     try {
       await investments.deleteLot(lotId);
+      setEditingLotId(null);
       load();
     } catch (err) {
-      setDeleteError(err.response?.data?.error || 'Could not delete this position.');
+      setDeleteRealError(err.response?.data?.error || 'Could not delete this position.');
     }
   };
 
@@ -156,6 +155,9 @@ export default function Dashboard() {
     setEditBuyDate(h.buyDate ? h.buyDate.slice(0, 10) : '');
     setEditPassword('');
     setEditError('');
+    setShowDeleteInEdit(false);
+    setDeleteRealPassword('');
+    setDeleteRealError('');
   };
 
   const submitEdit = async (e, h) => {
@@ -174,18 +176,12 @@ export default function Dashboard() {
     }
   };
 
-  const openDeleteReal = (lotId) => {
-    setDeletingRealLotId(lotId);
-    setDeleteRealPassword('');
-    setDeleteRealError('');
-  };
-
   const submitDeleteReal = async (e, h) => {
     e.preventDefault();
     setDeleteRealError('');
     try {
       await investments.deleteLotConfirmed(h.lotId, deleteRealPassword);
-      setDeletingRealLotId(null);
+      setEditingLotId(null);
       load();
     } catch (err) {
       setDeleteRealError(err.response?.data?.error || 'Could not delete this position.');
@@ -287,7 +283,6 @@ export default function Dashboard() {
           <button onClick={refreshAll}>Refresh all prices</button>
         </div>
         {refreshStatus && <p style={{ color: '#94a3b8', fontSize: 13 }}>{refreshStatus}</p>}
-        {deleteError && <p className="negative">{deleteError}</p>}
         {loading ? <p>Loading…</p> : holdings.length === 0 ? <p>No active positions yet.</p> : (
           <table>
             <thead>
@@ -296,7 +291,7 @@ export default function Dashboard() {
                 <th title="Buy price × quantity currently held">Invested</th>
                 <th>Current price</th>
                 <th title="Current price − buy price, times quantity held">Unrealized gain</th>
-                <th title="Unrealized gain as a percentage of what you invested">%</th><th></th><th></th><th></th><th></th><th></th>
+                <th title="Unrealized gain as a percentage of what you invested">%</th><th></th><th></th><th></th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -330,58 +325,66 @@ export default function Dashboard() {
                     <td><button className="btn-sm" title="Enter the current market price yourself" onClick={() => openManualPrice(h.lotId)}>Set current price</button></td>
                     <td><button className="btn-sm" onClick={() => openSell(h.lotId)}>Sell</button></td>
                     <td><button className="btn-sm" onClick={() => openEdit(h)}>Edit</button></td>
-                    <td>
-                      {h.isPaperMoney ? (
-                        <button className="btn-sm" onClick={() => deleteLot(h.lotId, h.ticker)}>Delete</button>
-                      ) : (
-                        <button className="btn-sm" onClick={() => openDeleteReal(h.lotId)}>Delete</button>
-                      )}
-                    </td>
                   </tr>
                   {editingLotId === h.lotId && (
                     <tr>
-                      <td colSpan={12}>
-                        <form onSubmit={(e) => submitEdit(e, h)} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                          <input placeholder="Buy price" type="number" step="any"
-                                 value={editBuyPrice} onChange={(e) => setEditBuyPrice(e.target.value)} required />
-                          <input placeholder="Buy date" type="date"
-                                 value={editBuyDate} onChange={(e) => setEditBuyDate(e.target.value)} />
-                          {!h.isPaperMoney && (
-                            <>
-                              <span className="negative" style={{ fontSize: 13 }}>
-                                ⚠ This is a real-money position — enter your password to confirm this edit.
-                              </span>
-                              <input placeholder="Password" type="password"
-                                     value={editPassword} onChange={(e) => setEditPassword(e.target.value)} required />
-                            </>
-                          )}
-                          <button type="submit">Save changes</button>
-                          <button type="button" onClick={() => setEditingLotId(null)}>Cancel</button>
-                        </form>
-                        {editError && <p className="negative">{editError}</p>}
-                      </td>
-                    </tr>
-                  )}
-                  {deletingRealLotId === h.lotId && (
-                    <tr>
-                      <td colSpan={12}>
-                        <form onSubmit={(e) => submitDeleteReal(e, h)} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                          <span className="negative" style={{ fontSize: 13 }}>
-                            ⚠ This is a REAL-MONEY position. Deleting it removes it and all its sell
-                            history permanently — this cannot be undone. Enter your password to confirm.
-                          </span>
-                          <input placeholder="Password" type="password"
-                                 value={deleteRealPassword} onChange={(e) => setDeleteRealPassword(e.target.value)} required />
-                          <button type="submit">Confirm permanent delete</button>
-                          <button type="button" onClick={() => setDeletingRealLotId(null)}>Cancel</button>
-                        </form>
-                        {deleteRealError && <p className="negative">{deleteRealError}</p>}
+                      <td colSpan={11}>
+                        {!showDeleteInEdit ? (
+                          <>
+                            <form onSubmit={(e) => submitEdit(e, h)} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                              <input placeholder="Buy price" type="number" step="any"
+                                     value={editBuyPrice} onChange={(e) => setEditBuyPrice(e.target.value)} required />
+                              <input placeholder="Buy date" type="date"
+                                     value={editBuyDate} onChange={(e) => setEditBuyDate(e.target.value)} />
+                              {!h.isPaperMoney && (
+                                <>
+                                  <span className="negative" style={{ fontSize: 13 }}>
+                                    ⚠ Real-money position — enter your password to confirm this edit.
+                                  </span>
+                                  <input placeholder="Password" type="password"
+                                         value={editPassword} onChange={(e) => setEditPassword(e.target.value)} required />
+                                </>
+                              )}
+                              <button type="submit">Save changes</button>
+                              <button type="button" onClick={() => setEditingLotId(null)}>Cancel</button>
+                              <button type="button" style={{ marginLeft: 'auto' }}
+                                      onClick={() => { setShowDeleteInEdit(true); setDeleteRealError(''); }}>
+                                Delete this position instead
+                              </button>
+                            </form>
+                            {editError && <p className="negative">{editError}</p>}
+                          </>
+                        ) : (
+                          <>
+                            {h.isPaperMoney ? (
+                              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                                <span className="negative" style={{ fontSize: 13 }}>
+                                  ⚠ Delete this paper-money position and all its sell records? This cannot be undone.
+                                </span>
+                                <button onClick={() => deleteLot(h.lotId)}>Confirm delete</button>
+                                <button onClick={() => setShowDeleteInEdit(false)}>Back to edit</button>
+                              </div>
+                            ) : (
+                              <form onSubmit={(e) => submitDeleteReal(e, h)} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                                <span className="negative" style={{ fontSize: 13 }}>
+                                  ⚠ This is a REAL-MONEY position. Deleting it removes it and all its
+                                  sell history permanently — this cannot be undone. Enter your password to confirm.
+                                </span>
+                                <input placeholder="Password" type="password"
+                                       value={deleteRealPassword} onChange={(e) => setDeleteRealPassword(e.target.value)} required />
+                                <button type="submit">Confirm permanent delete</button>
+                                <button type="button" onClick={() => setShowDeleteInEdit(false)}>Back to edit</button>
+                              </form>
+                            )}
+                            {deleteRealError && <p className="negative">{deleteRealError}</p>}
+                          </>
+                        )}
                       </td>
                     </tr>
                   )}
                   {manualPriceLotId === h.lotId && (
                     <tr>
-                      <td colSpan={12}>
+                      <td colSpan={11}>
                         <form onSubmit={(e) => submitManualPrice(e, h.ticker)} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                           <input placeholder={`Current price (${h.currency})`} type="number" step="any"
                                  value={manualPriceValue} onChange={(e) => setManualPriceValue(e.target.value)} required />
@@ -393,7 +396,7 @@ export default function Dashboard() {
                   )}
                   {sellingLotId === h.lotId && (
                     <tr>
-                      <td colSpan={12}>
+                      <td colSpan={11}>
                         <form onSubmit={(e) => submitSell(e, h.lotId)} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                           <input placeholder="Quantity to sell" type="number" step="any" max={h.remainingQuantity}
                                  value={sellQty} onChange={(e) => setSellQty(e.target.value)} required />
