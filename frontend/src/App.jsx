@@ -19,6 +19,7 @@ function PrivateRoute({ children }) {
 
 function NavBar() {
   const navigate = useNavigate();
+  const displayName = localStorage.getItem('displayName') || 'there';
   const logout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('displayName');
@@ -26,13 +27,16 @@ function NavBar() {
   };
   if (!isAuthed()) return null;
   return (
-    <div style={{ display: 'flex', gap: 16, padding: '16px 24px', borderBottom: '1px solid #334155', flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', gap: 16, padding: '16px 24px', borderBottom: '1px solid #334155', flexWrap: 'wrap', alignItems: 'center' }}>
       <Link to="/" title="Your portfolio, holdings, and totals">📊 Dashboard</Link>
       <Link to="/companies" title="Every stock you've searched or bought">🏢 My Companies</Link>
       <Link to="/history" title="Your full sell history, real and paper money">📜 History</Link>
       <Link to="/notes" title="Your personal freeform notes">📝 My Notes</Link>
       <Link to="/learn" title="Rule #1 concepts explained simply">📘 Learn (Rule #1)</Link>
-      <div style={{ marginLeft: 'auto' }}>
+      <div style={{ marginLeft: 'auto', display: 'flex', gap: 16, alignItems: 'center' }}>
+        <span style={{ color: '#94a3b8', fontSize: 13 }}>
+          Welcome back, <b style={{ color: '#e2e8f0' }}>{displayName}</b>
+        </span>
         <button title="Sign out of your account" onClick={logout}>🚪 Log out</button>
       </div>
     </div>

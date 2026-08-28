@@ -33,7 +33,6 @@ export default function Dashboard() {
   const [displayCurrency, setDisplayCurrency] = useState('INR');
   const [fxRate, setFxRate] = useState(1);
   const [fxError, setFxError] = useState('');
-  const displayName = localStorage.getItem('displayName') || 'there';
   const navigate = useNavigate();
 
   const load = async () => {
@@ -209,10 +208,7 @@ export default function Dashboard() {
   return (
     <div className="container">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <h1 style={{ marginBottom: 0 }}>Welcome back, {displayName}</h1>
-          <p style={{ color: '#94a3b8', marginTop: 4 }}>Portfolio</p>
-        </div>
+        <h1>Portfolio</h1>
         <button onClick={downloadCsv}>Download CSV</button>
       </div>
 
