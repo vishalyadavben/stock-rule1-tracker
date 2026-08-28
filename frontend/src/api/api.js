@@ -52,6 +52,7 @@ export const stickerPrice = {
 
 export const exportApi = {
   csv: () => api.get('/export/csv', { responseType: 'blob' }),
+  historyCsv: () => api.get('/export/history-csv', { responseType: 'blob' }),
   stockReport: (ticker) => api.get(`/export/report/${ticker}`, { responseType: 'blob' }),
 };
 

@@ -99,6 +99,41 @@ public class ExportController {
         writer.flush();
     }
 
+    /** History-only export — mirrors exactly what's shown on the History page (every sell
+     *  record, real and paper money, with currency), rather than the fuller combined export
+     *  above which also includes active holdings. */
+    @GetMapping("/history-csv")
+    public void exportHistoryCsv(HttpServletResponse response) throws java.io.IOException {
+        Long userId = CurrentUser.id();
+        response.setContentType("text/csv");
+        response.setHeader("Content-Disposition", "attachment; filename=\"rule1-tracker-history.csv\"");
+
+        PrintWriter writer = response.getWriter();
+        Map<Long, Stock> stockCache = new java.util.HashMap<>();
+
+        List<InvestmentLot> allLots = investmentService.getAllLots(userId);
+        Map<Long, InvestmentLot> lotById = new java.util.HashMap<>();
+        for (InvestmentLot l : allLots) lotById.put(l.getId(), l);
+
+        writer.println("Ticker,Currency,Type,QuantitySold,BuyPrice,BuyDate,SellPrice,SellDate,RealizedGain,RealizedGainPct,Notes");
+
+        for (InvestmentExit exit : investmentService.getExitHistory(userId)) {
+            InvestmentLot lot = lotById.get(exit.getLotId());
+            Stock stock = lot == null ? null : stockCache.computeIfAbsent(lot.getStockId(), id -> stockRepository.findById(id).orElse(null));
+            String ticker = stock != null ? stock.getTicker() : "?";
+            String currency = stock != null ? stock.getCurrency() : "";
+            String type = lot != null && Boolean.TRUE.equals(lot.getIsPaperMoney()) ? "Paper" : "Real";
+            String notes = exit.getNotes() == null ? "" : exit.getNotes().replace(",", ";");
+            writer.printf("%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s%n",
+                    ticker, currency, type, exit.getQuantitySold(),
+                    lot != null ? lot.getBuyPrice() : "", lot != null ? lot.getBuyDate() : "",
+                    exit.getSellPrice(), exit.getSellDate(),
+                    exit.getRealizedGain(), exit.getRealizedGainPct(), notes);
+        }
+
+        writer.flush();
+    }
+
     /** Downloadable single-stock research report: Big Five (both API and manual data),
      *  growth rates, checklist responses, sticker price calc history, and current score. */
     @GetMapping("/report/{ticker}")

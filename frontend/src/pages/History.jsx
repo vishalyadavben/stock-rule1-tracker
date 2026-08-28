@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { investments, fx } from '../api/api.js';
+import { investments, fx, exportApi } from '../api/api.js';
 import { formatMoney } from '../utils/currency.js';
 
 export default function History() {
@@ -18,6 +18,18 @@ export default function History() {
   const [deleteError, setDeleteError] = useState('');
 
   const load = () => investments.history().then((res) => setRows(res.data));
+
+  const downloadHistoryCsv = async () => {
+    const res = await exportApi.historyCsv();
+    const url = window.URL.createObjectURL(new Blob([res.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'rule1-tracker-history.csv');
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  };
 
   useEffect(() => { load(); }, []);
 
@@ -90,7 +102,10 @@ export default function History() {
 
   return (
     <div className="container">
-      <h1 title="Every sell you've recorded, real and paper money">Exit history</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h1 title="Every sell you've recorded, real and paper money">Exit history</h1>
+        <button onClick={downloadHistoryCsv}>Download CSV</button>
+      </div>
 
       <div className="card" style={{ display: 'flex', gap: 24, alignItems: 'center', flexWrap: 'wrap' }}>
         <div>
