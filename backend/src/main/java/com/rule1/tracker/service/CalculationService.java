@@ -41,20 +41,19 @@ public class CalculationService {
     /**
      * Given a sorted (oldest -> newest) list of yearly Big Five rows, compute growth rates for
      * each of the requested year windows (e.g. 10, 5, 3, 1) — any window the user wants to see,
-     * not just a fixed 10/5/1. If there isn't enough history for a given window (e.g. only 2
-     * years of data but a 10-year window was requested), that window returns null — it must
-     * NOT silently fall back to a shorter window while still labeling it "10yr", which would
-     * misrepresent a 1-year change as a 10-year growth rate.
+     * not just a fixed 10/5/1.
+     *
+     * Critically, "N years" means an actual N-calendar-year gap between two data points, NOT
+     * "N rows back in the list." If a user has only entered 2023 and 2026 (a 3-year gap, but
+     * just 2 rows), the 1yr window must NOT silently compute the change between those two rows
+     * and mislabel it "1yr" — it's actually a 3-year change. So each window looks for a row at
+     * exactly (latest year − window) and returns null if no such row exists, rather than
+     * falling back to whatever row happens to be adjacent in the list.
      */
     public Map<String, BigDecimal> computeGrowthRates(List<BigFiveMetric> yearlySorted, String field, int... windows) {
-        int n = yearlySorted.size();
         Map<String, BigDecimal> result = new java.util.LinkedHashMap<>();
         for (int window : windows) {
-            if (n - 1 < window) {
-                result.put(window + "yr", null); // not enough history to honestly support this window
-            } else {
-                result.put(window + "yr", growthFor(yearlySorted, field, window));
-            }
+            result.put(window + "yr", growthFor(yearlySorted, field, window));
         }
         return result;
     }
@@ -69,19 +68,22 @@ public class CalculationService {
      * a cumulative value, so "growth" doesn't apply the same way it does to Sales/EPS/Equity/
      * FCF; what's useful instead is the mean over each window, shown the same way (10yr/5yr/
      * 3yr/1yr) so it lines up visually with the other four metrics.
-     * Same honesty rule as computeGrowthRates: a "10yr" average requires 10 actual years of
-     * data — it does not quietly average over however few years happen to exist.
+     * The window is a calendar-year range (latest year − window + 1) through (latest year),
+     * not "however many rows happen to exist" — so a gap year with no data just isn't counted,
+     * rather than silently shifting which years are considered part of the window.
      */
     public Map<String, BigDecimal> averageRoic(List<BigFiveMetric> yearlySorted, int... windows) {
         Map<String, BigDecimal> result = new java.util.LinkedHashMap<>();
-        int n = yearlySorted.size();
+        if (yearlySorted.isEmpty()) {
+            for (int window : windows) result.put(window + "yr", null);
+            return result;
+        }
+        int latestYear = yearlySorted.get(yearlySorted.size() - 1).getFiscalYear();
+
         for (int window : windows) {
-            if (n < window) {
-                result.put(window + "yr", null);
-                continue;
-            }
-            List<BigFiveMetric> lastN = yearlySorted.subList(n - window, n);
-            List<BigDecimal> values = lastN.stream()
+            int startYear = latestYear - window + 1;
+            List<BigDecimal> values = yearlySorted.stream()
+                    .filter(m -> m.getFiscalYear() >= startYear && m.getFiscalYear() <= latestYear)
                     .map(BigFiveMetric::getRoicPct)
                     .filter(java.util.Objects::nonNull)
                     .toList();
@@ -95,13 +97,25 @@ public class CalculationService {
         return result;
     }
 
+    /**
+     * Finds the row at exactly (latest fiscal year − yearsBack) and computes CAGR against the
+     * latest row. Returns null if no row exists at that exact year — e.g. with only 2023 and
+     * 2026 on file, yearsBack=1 looks for 2025 (not found → null), yearsBack=3 looks for 2023
+     * (found → computed).
+     */
     private BigDecimal growthFor(List<BigFiveMetric> sorted, String field, int yearsBack) {
-        int n = sorted.size();
-        if (yearsBack <= 0 || yearsBack >= n) return null;
-        BigFiveMetric startRow = sorted.get(n - 1 - yearsBack);
-        BigFiveMetric endRow = sorted.get(n - 1);
+        if (sorted.isEmpty() || yearsBack <= 0) return null;
+        BigFiveMetric latest = sorted.get(sorted.size() - 1);
+        int targetYear = latest.getFiscalYear() - yearsBack;
+
+        BigFiveMetric startRow = sorted.stream()
+                .filter(m -> m.getFiscalYear() == targetYear)
+                .findFirst()
+                .orElse(null);
+        if (startRow == null) return null;
+
         BigDecimal startVal = extract(startRow, field);
-        BigDecimal endVal = extract(endRow, field);
+        BigDecimal endVal = extract(latest, field);
         return cagr(startVal, endVal, yearsBack);
     }
 

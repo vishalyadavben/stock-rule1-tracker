@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { stocks, checklist, stickerPrice, score, exportApi, watchlist } from '../api/api.js';
+import { stocks, checklist, stickerPrice, score, exportApi, watchlist, shares } from '../api/api.js';
 import { currencySymbol, formatMoney } from '../utils/currency.js';
 
 const emptyManualForm = {
@@ -19,6 +19,18 @@ function growthCell(rates, key) {
 
 export default function StockDetail() {
   const { ticker } = useParams();
+  const [searchParams] = useSearchParams();
+  const ownerIdParam = searchParams.get('ownerId') ? Number(searchParams.get('ownerId')) : null;
+  const myUserId = Number(localStorage.getItem('userId'));
+  const isSharedView = ownerIdParam !== null && ownerIdParam !== myUserId;
+
+  const [sharedMeta, setSharedMeta] = useState(null); // { ownerEmail, permission } when isSharedView
+  const [myShares, setMyShares] = useState([]);
+  const [shareEmail, setShareEmail] = useState('');
+  const [sharePermission, setSharePermission] = useState('VIEW');
+  const [shareError, setShareError] = useState('');
+  const canEdit = !isSharedView || sharedMeta?.permission === 'EDIT';
+
   const [stockInfo, setStockInfo] = useState(null);
   const [bigFiveSource, setBigFiveSource] = useState(() => localStorage.getItem(`bigFiveSource:${ticker}`) || 'API');
   const [bigFive, setBigFive] = useState([]);
@@ -68,8 +80,8 @@ export default function StockDetail() {
     const [info, ci, cr, sc] = await Promise.all([
       stocks.get(ticker).catch(() => null),
       checklist.items(),
-      checklist.responses(ticker),
-      score.get(ticker).catch(() => null),
+      checklist.responses(ticker, ownerIdParam).catch(() => ({ data: [] })),
+      score.get(ticker, ownerIdParam).catch(() => null),
     ]);
     setStockInfo(info?.data || null);
     setItems(ci.data);
@@ -77,6 +89,22 @@ export default function StockDetail() {
     cr.data.forEach((r) => { respMap[r.checklistItemId] = r; });
     setResponses(respMap);
     setBusinessScore(sc?.data || null);
+
+    if (isSharedView) {
+      // Find this share's permission + owner email from "shared with me" — used to show the
+      // banner and to lock the UI to read-only when permission is VIEW.
+      try {
+        const res = await shares.sharedWithMe();
+        const match = res.data.find((s) => s.ticker === ticker && s.ownerId === ownerIdParam);
+        setSharedMeta(match ? { ownerEmail: match.ownerEmail, permission: match.permission } : null);
+      } catch { /* non-fatal */ }
+    } else {
+      // Load who I've shared THIS stock's analysis with, for the "Share this analysis" panel.
+      try {
+        const res = await shares.myShares(ticker);
+        setMyShares(res.data);
+      } catch { /* non-fatal */ }
+    }
 
     // Auto-detect which source actually has data, so returning to this page doesn't look like
     // your Big Five "disappeared" just because it defaulted to the empty tab.
@@ -160,10 +188,12 @@ export default function StockDetail() {
   const cancelEdit = () => {
     setManualForm(emptyManualForm);
     setEditingYear(null);
+    setPendingOverwriteYear(null);
   };
 
-  const submitManual = async (e) => {
-    e.preventDefault();
+  const [pendingOverwriteYear, setPendingOverwriteYear] = useState(null);
+
+  const doSaveManual = async () => {
     await stocks.saveManualBigFive(ticker, {
       fiscalYear: Number(manualForm.fiscalYear),
       sales: manualForm.sales === '' ? null : Number(manualForm.sales),
@@ -175,8 +205,28 @@ export default function StockDetail() {
       roicPct: manualForm.roicPct === '' ? null : Number(manualForm.roicPct),
     });
     cancelEdit();
+    setPendingOverwriteYear(null);
     setBigFiveSource('MANUAL');
     loadBigFive('MANUAL', growthYears);
+  };
+
+  const submitManual = async (e) => {
+    e.preventDefault();
+
+    // If the user is explicitly editing an existing row (via the Edit button), overwriting it
+    // is exactly the intent — no extra warning needed. But if they're in "add a new year" mode
+    // and happen to type a year that already exists (e.g. a typo repeating 2026), that would
+    // silently overwrite existing data with no warning at all — this check catches that case.
+    if (editingYear === null) {
+      const targetYear = Number(manualForm.fiscalYear);
+      const existing = await stocks.getBigFiveBySource(ticker, 'MANUAL');
+      if (existing.data.some((row) => row.fiscalYear === targetYear)) {
+        setPendingOverwriteYear(targetYear);
+        return;
+      }
+    }
+
+    await doSaveManual();
   };
 
   const deleteYear = async (source, fiscalYear) => {
@@ -186,17 +236,23 @@ export default function StockDetail() {
   };
 
   const toggleCheck = async (itemId) => {
+    if (!canEdit) return;
     const current = responses[itemId];
     await checklist.save(ticker, {
       checklistItemId: itemId,
       isChecked: !current?.isChecked,
       freeText: current?.freeText || '',
+      ownerId: ownerIdParam,
     });
     loadAll();
   };
 
   const saveNote = async (itemId, text) => {
-    await checklist.save(ticker, { checklistItemId: itemId, isChecked: responses[itemId]?.isChecked || false, freeText: text });
+    if (!canEdit) return;
+    await checklist.save(ticker, {
+      checklistItemId: itemId, isChecked: responses[itemId]?.isChecked || false,
+      freeText: text, ownerId: ownerIdParam,
+    });
   };
 
   const autoFillFromBigFive = async () => {
@@ -216,7 +272,7 @@ export default function StockDetail() {
 
   const loadStickerHistory = async () => {
     try {
-      const res = await stickerPrice.history(ticker);
+      const res = await stickerPrice.history(ticker, ownerIdParam);
       setSpHistory(res.data);
     } catch { /* non-fatal — history just won't show */ }
   };
@@ -231,6 +287,7 @@ export default function StockDetail() {
       estimatedFuturePe: Number(sp.estimatedFuturePe),
       minAcceptableReturnPct: Number(sp.minAcceptableReturnPct),
       yearsToHold: Number(sp.yearsToHold) || 10,
+      ownerId: ownerIdParam,
     });
     setSpResult(res.data);
     loadStickerHistory();
@@ -257,6 +314,27 @@ export default function StockDetail() {
     window.URL.revokeObjectURL(url);
   };
 
+  const submitShare = async (e) => {
+    e.preventDefault();
+    setShareError('');
+    try {
+      await shares.share(ticker, shareEmail, sharePermission);
+      setShareEmail('');
+      setSharePermission('VIEW');
+      const res = await shares.myShares(ticker);
+      setMyShares(res.data);
+    } catch (err) {
+      setShareError(err.response?.data?.error || 'Could not share this analysis.');
+    }
+  };
+
+  const revokeShare = async (id) => {
+    if (!window.confirm('Revoke this person\'s access to your analysis of this stock?')) return;
+    await shares.revoke(id);
+    const res = await shares.myShares(ticker);
+    setMyShares(res.data);
+  };
+
   const chartData = bigFive.map((m) => ({
     year: m.fiscalYear,
     Sales: m.sales, EPS: m.eps, Equity: m.equity, FCF: m.freeCashFlow, ROIC: m.roicPct,
@@ -275,6 +353,58 @@ export default function StockDetail() {
         <h1>{ticker} <span style={{ fontSize: 14, color: '#94a3b8' }}>({currency})</span></h1>
         <button onClick={downloadReport}>Download report</button>
       </div>
+
+      {isSharedView && (
+        <div className="card" style={{ borderColor: '#60a5fa' }}>
+          <p style={{ margin: 0 }}>
+            🤝 Viewing <b>{sharedMeta?.ownerEmail || 'someone'}</b>'s analysis —
+            you have <span className={`badge ${sharedMeta?.permission === 'EDIT' ? 'pass' : 'fail'}`}>
+              {sharedMeta?.permission || 'VIEW'}
+            </span> access.
+            {sharedMeta?.permission !== 'EDIT' && ' Checklist and Sticker Price changes are disabled.'}
+          </p>
+        </div>
+      )}
+
+      {!isSharedView && (
+        <div className="card">
+          <h3 title="Give another user access to your checklist, Sticker Price calculations, and score for this stock">
+            Share this analysis
+          </h3>
+          <p style={{ color: '#94a3b8', fontSize: 13 }}>
+            Shares your checklist answers, Sticker Price calculations, and business score for
+            {' '}{ticker} with another user by email. If they don't have an account yet, they'll
+            get access automatically the moment they register with that email. Big Five data
+            isn't included here — it's already visible to anyone who looks up this ticker.
+          </p>
+          <form onSubmit={submitShare} style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <input placeholder="Email address" type="email" value={shareEmail}
+                   onChange={(e) => setShareEmail(e.target.value)} required style={{ minWidth: 220 }} />
+            <select value={sharePermission} onChange={(e) => setSharePermission(e.target.value)}>
+              <option value="VIEW">Can view</option>
+              <option value="EDIT">Can view and edit</option>
+            </select>
+            <button type="submit">Share</button>
+          </form>
+          {shareError && <p className="negative">{shareError}</p>}
+
+          {myShares.length > 0 && (
+            <table style={{ marginTop: 14 }}>
+              <thead><tr><th>Email</th><th>Access</th><th>Account</th><th></th></tr></thead>
+              <tbody>
+                {myShares.map((s) => (
+                  <tr key={s.id}>
+                    <td>{s.email}</td>
+                    <td><span className={`badge ${s.permission === 'EDIT' ? 'pass' : 'fail'}`}>{s.permission}</span></td>
+                    <td>{s.hasAccount ? 'Registered' : <span style={{ color: '#94a3b8' }}>Pending — not registered yet</span>}</td>
+                    <td><button className="btn-sm" onClick={() => revokeShare(s.id)}>Revoke</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
 
       <div className="card">
         <h3 title="The latest price on record for this stock, live or manually entered">Current price</h3>
@@ -394,7 +524,8 @@ export default function StockDetail() {
           </summary>
           <form onSubmit={submitManual} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12 }}>
             <input placeholder="Fiscal year" type="number" value={manualForm.fiscalYear}
-                   onChange={(e) => setManualForm({ ...manualForm, fiscalYear: e.target.value })} required style={{ width: 110 }}
+                   onChange={(e) => { setManualForm({ ...manualForm, fiscalYear: e.target.value }); setPendingOverwriteYear(null); }}
+                   required style={{ width: 110 }}
                    disabled={editingYear !== null} />
             <input placeholder="Sales" type="number" step="any" value={manualForm.sales}
                    onChange={(e) => setManualForm({ ...manualForm, sales: e.target.value })} />
@@ -413,6 +544,16 @@ export default function StockDetail() {
             <button type="submit">{editingYear !== null ? 'Save changes' : 'Save year'}</button>
             {editingYear !== null && <button type="button" onClick={cancelEdit}>Cancel</button>}
           </form>
+          {pendingOverwriteYear !== null && (
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 10 }}>
+              <span className="negative" style={{ fontSize: 13 }}>
+                ⚠ Manual data for {pendingOverwriteYear} already exists for this stock. Saving
+                will overwrite it — this cannot be undone. Continue?
+              </span>
+              <button onClick={doSaveManual}>Confirm overwrite</button>
+              <button onClick={() => setPendingOverwriteYear(null)}>Cancel</button>
+            </div>
+          )}
         </details>
       </div>
 
@@ -461,7 +602,7 @@ export default function StockDetail() {
           <input placeholder="Years to hold" type="number" step="1" min="1" value={sp.yearsToHold}
                  title="How many years to grow EPS forward and discount the price back — 10 by default, per the 10-10 Rule"
                  onChange={(e) => setSp({ ...sp, yearsToHold: e.target.value })} required style={{ width: 110 }} />
-          <button type="submit">Calculate</button>
+          <button type="submit" disabled={!canEdit}>Calculate</button>
         </form>
         {spResult && (
           <div style={{ marginTop: 16 }}>
@@ -483,7 +624,8 @@ export default function StockDetail() {
               <thead>
                 <tr>
                   <th>Date &amp; time</th><th>Current EPS</th><th>Growth %</th><th>Future PE</th>
-                  <th>Min return %</th><th>Years</th><th>Sticker Price</th><th>MOS price</th><th></th>
+                  <th>Min return %</th><th>Years</th><th>Future EPS</th><th>Future price</th>
+                  <th>Sticker Price</th><th>MOS price</th><th></th>
                 </tr>
               </thead>
               <tbody>
@@ -496,13 +638,15 @@ export default function StockDetail() {
                       <td>{c.estimatedFuturePe}</td>
                       <td>{c.minAcceptableReturn}%</td>
                       <td>{c.yearsToHold ?? 10}</td>
+                      <td>{symbol}{c.futureEps10y}</td>
+                      <td>{symbol}{c.futurePrice}</td>
                       <td style={{ color: '#4ade80' }}>{symbol}{c.stickerPrice}</td>
                       <td style={{ color: '#facc15' }}>{symbol}{c.marginOfSafetyPrice}</td>
-                      <td><button className="btn-sm" onClick={() => confirmDeleteCalc(c.id)}>Delete</button></td>
+                      <td><button className="btn-sm" onClick={() => confirmDeleteCalc(c.id)} disabled={!canEdit}>Delete</button></td>
                     </tr>
                     {deletingCalcId === c.id && (
                       <tr>
-                        <td colSpan={9}>
+                        <td colSpan={11}>
                           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                             <span className="negative" style={{ fontSize: 13 }}>
                               ⚠ Delete this saved calculation from {new Date(c.calculatedAt).toLocaleString()}? This cannot be undone.
@@ -529,7 +673,7 @@ export default function StockDetail() {
             {catItems.map((item) => (
               <div key={item.id} style={{ marginBottom: 10 }}>
                 <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <input type="checkbox" checked={!!responses[item.id]?.isChecked} onChange={() => toggleCheck(item.id)} />
+                  <input type="checkbox" checked={!!responses[item.id]?.isChecked} onChange={() => toggleCheck(item.id)} disabled={!canEdit} />
                   {item.prompt}
                 </label>
                 <textarea
@@ -537,6 +681,7 @@ export default function StockDetail() {
                   defaultValue={responses[item.id]?.freeText || ''}
                   onBlur={(e) => saveNote(item.id, e.target.value)}
                   rows={2}
+                  disabled={!canEdit}
                   style={{ width: '100%', marginTop: 4 }}
                 />
               </div>

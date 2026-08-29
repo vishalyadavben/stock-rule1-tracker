@@ -199,11 +199,13 @@ public class ExportController {
             w.println("<p class='muted'>No Sticker Price calculations saved yet.</p>");
         } else {
             w.println("<table><tr><th>Date</th><th>Current EPS</th><th>Growth %</th><th>Future PE</th>"
-                    + "<th>Min Return %</th><th>Sticker Price</th><th>Margin-of-Safety Price</th></tr>");
+                    + "<th>Min Return %</th><th>Years</th><th>Future EPS</th><th>Future Price</th>"
+                    + "<th>Sticker Price</th><th>Margin-of-Safety Price</th></tr>");
             for (StickerPriceCalc c : calcs) {
-                w.printf("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>%n",
+                w.printf("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>%n",
                         c.getCalculatedAt(), c.getCurrentEps(), c.getEstimatedGrowthPct(), c.getEstimatedFuturePe(),
-                        c.getMinAcceptableReturn(), c.getStickerPrice(), c.getMarginOfSafetyPrice());
+                        c.getMinAcceptableReturn(), c.getYearsToHold(), c.getFutureEps10y(), c.getFuturePrice(),
+                        c.getStickerPrice(), c.getMarginOfSafetyPrice());
             }
             w.println("</table>");
         }

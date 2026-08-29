@@ -1,0 +1,34 @@
+package com.rule1.tracker.entity;
+
+import jakarta.persistence.*;
+import lombok.Data;
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "stock_shares")
+@Data
+public class StockShare {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "stock_id", nullable = false)
+    private Long stockId;
+
+    @Column(name = "owner_user_id", nullable = false)
+    private Long ownerUserId;
+
+    @Column(name = "shared_with_email", nullable = false)
+    private String sharedWithEmail;
+
+    @Column(name = "shared_with_user_id")
+    private Long sharedWithUserId;
+
+    @Enumerated(EnumType.STRING)
+    private Permission permission = Permission.VIEW;
+
+    @Column(name = "created_at")
+    private LocalDateTime createdAt;
+
+    public enum Permission { VIEW, EDIT }
+}

@@ -45,7 +45,7 @@ export const investments = {
 export const stickerPrice = {
   calculate: (data) => api.post('/sticker-price/calculate', data),
   defaultPe: (growthPct) => api.get(`/sticker-price/default-pe?estimatedGrowthPct=${growthPct}`),
-  history: (ticker) => api.get(`/sticker-price/history/${ticker}`),
+  history: (ticker, ownerId) => api.get(`/sticker-price/history/${ticker}`, { params: ownerId ? { ownerId } : {} }),
   suggest: (ticker, source) => api.get(`/sticker-price/suggest/${ticker}?source=${source}`),
   remove: (id) => api.delete(`/sticker-price/${id}`),
 };
@@ -74,17 +74,24 @@ export const fx = {
 
 export const checklist = {
   items: () => api.get('/checklist/items'),
-  responses: (ticker) => api.get(`/checklist/${ticker}/responses`),
+  responses: (ticker, ownerId) => api.get(`/checklist/${ticker}/responses`, { params: ownerId ? { ownerId } : {} }),
   save: (ticker, data) => api.post(`/checklist/${ticker}/responses`, data),
 };
 
 export const score = {
-  get: (ticker) => api.get(`/score/${ticker}`),
+  get: (ticker, ownerId) => api.get(`/score/${ticker}`, { params: ownerId ? { ownerId } : {} }),
 };
 
 export const watchlist = {
   list: () => api.get('/watchlist'),
   add: (ticker, notes) => api.post(`/watchlist/${ticker}`, notes),
+};
+
+export const shares = {
+  share: (ticker, email, permission) => api.post(`/shares/${ticker}`, { email, permission }),
+  myShares: (ticker) => api.get(`/shares/${ticker}`),
+  revoke: (id) => api.delete(`/shares/${id}`),
+  sharedWithMe: () => api.get('/shares/shared-with-me'),
 };
 
 export default api;

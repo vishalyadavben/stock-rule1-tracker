@@ -4,6 +4,7 @@ import com.rule1.tracker.entity.*;
 import com.rule1.tracker.repository.*;
 import com.rule1.tracker.security.CurrentUser;
 import com.rule1.tracker.service.CalculationService;
+import com.rule1.tracker.service.SharingService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -21,25 +22,35 @@ public class ScoreController {
     private final ChecklistResponseRepository checklistResponseRepository;
     private final StickerPriceCalcRepository stickerPriceCalcRepository;
     private final CalculationService calculationService;
+    private final SharingService sharingService;
 
     public ScoreController(StockRepository stockRepository, BigFiveMetricRepository bigFiveMetricRepository,
                             ChecklistItemRepository checklistItemRepository,
                             ChecklistResponseRepository checklistResponseRepository,
                             StickerPriceCalcRepository stickerPriceCalcRepository,
-                            CalculationService calculationService) {
+                            CalculationService calculationService, SharingService sharingService) {
         this.stockRepository = stockRepository;
         this.bigFiveMetricRepository = bigFiveMetricRepository;
         this.checklistItemRepository = checklistItemRepository;
         this.checklistResponseRepository = checklistResponseRepository;
         this.stickerPriceCalcRepository = stickerPriceCalcRepository;
         this.calculationService = calculationService;
+        this.sharingService = sharingService;
     }
 
+    /** ownerId (optional): the score for someone else's shared analysis of this stock,
+     *  if they've shared it with you at least at VIEW permission. */
     @GetMapping("/{ticker}")
-    public ResponseEntity<CalculationService.ScoreResult> score(@PathVariable String ticker) {
-        Long userId = CurrentUser.id();
+    public ResponseEntity<?> score(@PathVariable String ticker, @RequestParam(required = false) Long ownerId) {
         Stock stock = stockRepository.findByTicker(ticker.toUpperCase())
                 .orElseThrow(() -> new RuntimeException("Stock not found"));
+
+        Long userId;
+        try {
+            userId = sharingService.resolveEffectiveOwner(CurrentUser.id(), ownerId, stock.getId(), StockShare.Permission.VIEW);
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(403).body(Map.of("error", e.getMessage()));
+        }
 
         List<BigFiveMetric> yearly = bigFiveMetricRepository.findByStockIdOrderByFiscalYearAsc(stock.getId());
 

@@ -7,6 +7,7 @@ import History from './pages/History.jsx';
 import Learn from './pages/Learn.jsx';
 import Notes from './pages/Notes.jsx';
 import MyCompanies from './pages/MyCompanies.jsx';
+import SharedWithMe from './pages/SharedWithMe.jsx';
 import BackToTop from './components/BackToTop.jsx';
 
 function isAuthed() {
@@ -23,6 +24,7 @@ function NavBar() {
   const logout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('displayName');
+    localStorage.removeItem('userId');
     navigate('/login');
   };
   if (!isAuthed()) return null;
@@ -30,6 +32,7 @@ function NavBar() {
     <div style={{ display: 'flex', gap: 16, padding: '16px 24px', borderBottom: '1px solid #334155', flexWrap: 'wrap', alignItems: 'center' }}>
       <Link to="/" title="Your portfolio, holdings, and totals">📊 Dashboard</Link>
       <Link to="/companies" title="Every stock you've searched or bought">🏢 My Companies</Link>
+      <Link to="/shared-with-me" title="Analysis other people have shared with you">🤝 Shared With Me</Link>
       <Link to="/history" title="Your full sell history, real and paper money">📜 History</Link>
       <Link to="/notes" title="Your personal freeform notes">📝 My Notes</Link>
       <Link to="/learn" title="Rule #1 concepts explained simply">📘 Learn (Rule #1)</Link>
@@ -52,6 +55,7 @@ export default function App() {
         <Route path="/" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
         <Route path="/stock/:ticker" element={<PrivateRoute><StockDetail /></PrivateRoute>} />
         <Route path="/companies" element={<PrivateRoute><MyCompanies /></PrivateRoute>} />
+        <Route path="/shared-with-me" element={<PrivateRoute><SharedWithMe /></PrivateRoute>} />
         <Route path="/history" element={<PrivateRoute><History /></PrivateRoute>} />
         <Route path="/notes" element={<PrivateRoute><Notes /></PrivateRoute>} />
         <Route path="/learn" element={<PrivateRoute><Learn /></PrivateRoute>} />
