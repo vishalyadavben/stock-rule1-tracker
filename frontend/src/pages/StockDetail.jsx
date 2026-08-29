@@ -32,7 +32,7 @@ export default function StockDetail() {
   const [items, setItems] = useState([]);
   const [responses, setResponses] = useState({});
   const [businessScore, setBusinessScore] = useState(null);
-  const [sp, setSp] = useState({ currentEps: '', estimatedGrowthPct: '', estimatedFuturePe: '', minAcceptableReturnPct: '15' });
+  const [sp, setSp] = useState({ currentEps: '', estimatedGrowthPct: '', estimatedFuturePe: '', minAcceptableReturnPct: '15', yearsToHold: '10' });
   const [spResult, setSpResult] = useState(null);
   const [spError, setSpError] = useState('');
   const [spHistory, setSpHistory] = useState([]);
@@ -105,8 +105,8 @@ export default function StockDetail() {
   }, [bigFiveSource]);
 
   const applyCustomYears = () => {
-    const cleaned = customYears.split(',').map((s) => s.trim()).filter(Boolean).join(',');
-    const combined = cleaned ? `10,5,3,1,${cleaned}` : '10,5,3,1';
+    const cleaned = customYears.split(',').map((s) => s.trim()).filter(Boolean);
+    const combined = [...new Set(['10', '5', '3', '1', ...cleaned])].join(',');
     setGrowthYears(combined);
     loadBigFive(bigFiveSource, combined);
   };
@@ -230,6 +230,7 @@ export default function StockDetail() {
       estimatedGrowthPct: Number(sp.estimatedGrowthPct),
       estimatedFuturePe: Number(sp.estimatedFuturePe),
       minAcceptableReturnPct: Number(sp.minAcceptableReturnPct),
+      yearsToHold: Number(sp.yearsToHold) || 10,
     });
     setSpResult(res.data);
     loadStickerHistory();
@@ -342,7 +343,7 @@ export default function StockDetail() {
           Each metric is calculated independently — a gap in one never blocks seeing the others.
         </p>
         <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
-          <input placeholder="Add custom year window, e.g. 7" value={customYears}
+          <input placeholder="Custom year(s), e.g. 7 or 7,15" value={customYears}
                  onChange={(e) => setCustomYears(e.target.value)} style={{ width: 220 }} />
           <button onClick={applyCustomYears}>Show</button>
         </div>
@@ -457,11 +458,14 @@ export default function StockDetail() {
                  onChange={(e) => setSp({ ...sp, estimatedFuturePe: e.target.value })} required />
           <input placeholder="Min acceptable return %" type="number" step="any" value={sp.minAcceptableReturnPct}
                  onChange={(e) => setSp({ ...sp, minAcceptableReturnPct: e.target.value })} required />
+          <input placeholder="Years to hold" type="number" step="1" min="1" value={sp.yearsToHold}
+                 title="How many years to grow EPS forward and discount the price back — 10 by default, per the 10-10 Rule"
+                 onChange={(e) => setSp({ ...sp, yearsToHold: e.target.value })} required style={{ width: 110 }} />
           <button type="submit">Calculate</button>
         </form>
         {spResult && (
           <div style={{ marginTop: 16 }}>
-            <p>Future EPS (10yr): <b>{symbol}{spResult.futureEps10y}</b></p>
+            <p>Future EPS ({sp.yearsToHold || 10}yr): <b>{symbol}{spResult.futureEps10y}</b></p>
             <p>Future price: <b>{symbol}{spResult.futurePrice}</b></p>
             <p>Sticker Price: <b style={{ color: '#4ade80' }}>{symbol}{spResult.stickerPrice}</b></p>
             <p>Margin-of-Safety buy price (50%): <b style={{ color: '#facc15' }}>{symbol}{spResult.marginOfSafetyPrice}</b></p>
@@ -479,7 +483,7 @@ export default function StockDetail() {
               <thead>
                 <tr>
                   <th>Date &amp; time</th><th>Current EPS</th><th>Growth %</th><th>Future PE</th>
-                  <th>Min return %</th><th>Sticker Price</th><th>MOS price</th><th></th>
+                  <th>Min return %</th><th>Years</th><th>Sticker Price</th><th>MOS price</th><th></th>
                 </tr>
               </thead>
               <tbody>
@@ -491,13 +495,14 @@ export default function StockDetail() {
                       <td>{c.estimatedGrowthPct}%</td>
                       <td>{c.estimatedFuturePe}</td>
                       <td>{c.minAcceptableReturn}%</td>
+                      <td>{c.yearsToHold ?? 10}</td>
                       <td style={{ color: '#4ade80' }}>{symbol}{c.stickerPrice}</td>
                       <td style={{ color: '#facc15' }}>{symbol}{c.marginOfSafetyPrice}</td>
                       <td><button className="btn-sm" onClick={() => confirmDeleteCalc(c.id)}>Delete</button></td>
                     </tr>
                     {deletingCalcId === c.id && (
                       <tr>
-                        <td colSpan={8}>
+                        <td colSpan={9}>
                           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                             <span className="negative" style={{ fontSize: 13 }}>
                               ⚠ Delete this saved calculation from {new Date(c.calculatedAt).toLocaleString()}? This cannot be undone.

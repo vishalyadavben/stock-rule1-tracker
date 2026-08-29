@@ -59,7 +59,7 @@ public class StickerPriceController {
 
     public record StickerPriceRequest(
             String ticker, BigDecimal currentEps, BigDecimal estimatedGrowthPct,
-            BigDecimal estimatedFuturePe, BigDecimal minAcceptableReturnPct
+            BigDecimal estimatedFuturePe, BigDecimal minAcceptableReturnPct, Integer yearsToHold
     ) {}
 
     @PostMapping("/calculate")
@@ -67,8 +67,10 @@ public class StickerPriceController {
         Stock stock = stockRepository.findByTicker(req.ticker().toUpperCase())
                 .orElseThrow(() -> new RuntimeException("Stock not found — add it first"));
 
+        int years = req.yearsToHold() != null && req.yearsToHold() > 0 ? req.yearsToHold() : 10;
+
         var result = calculationService.calculateStickerPrice(
-                req.currentEps(), req.estimatedGrowthPct(), req.estimatedFuturePe(), req.minAcceptableReturnPct());
+                req.currentEps(), req.estimatedGrowthPct(), req.estimatedFuturePe(), req.minAcceptableReturnPct(), years);
 
         StickerPriceCalc calc = new StickerPriceCalc();
         calc.setUserId(CurrentUser.id());
@@ -77,6 +79,7 @@ public class StickerPriceController {
         calc.setEstimatedGrowthPct(req.estimatedGrowthPct());
         calc.setEstimatedFuturePe(req.estimatedFuturePe());
         calc.setMinAcceptableReturn(req.minAcceptableReturnPct());
+        calc.setYearsToHold(years);
         calc.setFutureEps10y(result.futureEps10y());
         calc.setFuturePrice(result.futurePrice());
         calc.setStickerPrice(result.stickerPrice());

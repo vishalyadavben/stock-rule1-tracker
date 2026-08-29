@@ -130,30 +130,44 @@ public class CalculationService {
 
     /**
      * Sticker Price calculation, following the book's method exactly:
-     *  1. futureEPS = currentEPS * (1 + growthRate)^10
+     *  1. futureEPS = currentEPS * (1 + growthRate)^yearsToHold
      *  2. futurePrice = futureEPS * futurePE
-     *  3. stickerPrice = futurePrice discounted back at the minimum acceptable rate of return over 10 years
+     *  3. stickerPrice = futurePrice discounted back at the minimum acceptable rate of return
+     *     over yearsToHold years
      *  4. marginOfSafetyPrice = 50% of stickerPrice
+     * The book uses 10 years by default (per the 10-10 Rule), but the holding period is really
+     * a user choice — the same number of years is used for both growing EPS forward and
+     * discounting the future price back, since they represent the same holding horizon.
      */
     public StickerPriceResult calculateStickerPrice(
             BigDecimal currentEps,
             BigDecimal estimatedGrowthPct,   // e.g. 15 for 15%
             BigDecimal estimatedFuturePe,
-            BigDecimal minAcceptableReturnPct // e.g. 15 for 15%
+            BigDecimal minAcceptableReturnPct, // e.g. 15 for 15%
+            int yearsToHold
     ) {
         double eps = currentEps.doubleValue();
         double g = estimatedGrowthPct.doubleValue() / 100.0;
         double pe = estimatedFuturePe.doubleValue();
         double mar = minAcceptableReturnPct.doubleValue() / 100.0;
+        int years = yearsToHold > 0 ? yearsToHold : 10;
 
-        double futureEps = eps * Math.pow(1 + g, 10);
+        double futureEps = eps * Math.pow(1 + g, years);
         double futurePrice = futureEps * pe;
-        double stickerPrice = futurePrice / Math.pow(1 + mar, 10);
+        double stickerPrice = futurePrice / Math.pow(1 + mar, years);
         double mosPrice = stickerPrice * 0.5;
 
         return new StickerPriceResult(
                 round(futureEps), round(futurePrice), round(stickerPrice), round(mosPrice)
         );
+    }
+
+    /** Backward-compatible default: the classic 10-year holding period. */
+    public StickerPriceResult calculateStickerPrice(
+            BigDecimal currentEps, BigDecimal estimatedGrowthPct,
+            BigDecimal estimatedFuturePe, BigDecimal minAcceptableReturnPct
+    ) {
+        return calculateStickerPrice(currentEps, estimatedGrowthPct, estimatedFuturePe, minAcceptableReturnPct, 10);
     }
 
     /** Suggested default future PE = 2x growth rate, capped/compared against historical PE elsewhere in the UI. */

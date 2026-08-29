@@ -31,6 +31,9 @@ public class StickerPriceCalc {
     @Column(name = "min_acceptable_return")
     private BigDecimal minAcceptableReturn;
 
+    @Column(name = "years_to_hold")
+    private Integer yearsToHold;
+
     @Column(name = "future_eps_10y")
     private BigDecimal futureEps10y;
 
