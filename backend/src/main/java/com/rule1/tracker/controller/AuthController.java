@@ -4,6 +4,7 @@ import com.rule1.tracker.dto.AuthDtos.*;
 import com.rule1.tracker.entity.User;
 import com.rule1.tracker.repository.UserRepository;
 import com.rule1.tracker.security.JwtUtil;
+import com.rule1.tracker.service.NoteSharingService;
 import com.rule1.tracker.service.SharingService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -19,13 +20,15 @@ public class AuthController {
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
     private final SharingService sharingService;
+    private final NoteSharingService noteSharingService;
 
     public AuthController(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtUtil jwtUtil,
-                           SharingService sharingService) {
+                           SharingService sharingService, NoteSharingService noteSharingService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtUtil = jwtUtil;
         this.sharingService = sharingService;
+        this.noteSharingService = noteSharingService;
     }
 
     @PostMapping("/register")
@@ -40,9 +43,10 @@ public class AuthController {
         user.setCreatedAt(LocalDateTime.now());
         user = userRepository.save(user);
 
-        // Anyone who shared analysis with this email before they registered gets linked now —
-        // sharing shouldn't depend on invite order.
+        // Anyone who shared analysis or notes with this email before they registered gets
+        // linked now — sharing shouldn't depend on invite order.
         sharingService.linkPendingSharesForNewUser(user);
+        noteSharingService.linkPendingSharesForNewUser(user);
 
         String token = jwtUtil.generateToken(user.getEmail(), user.getId());
         return ResponseEntity.ok(new AuthResponse(token, user.getEmail(), user.getId(), user.getDisplayName()));

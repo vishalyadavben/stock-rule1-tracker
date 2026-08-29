@@ -60,7 +60,12 @@ export const exportApi = {
 export const notes = {
   list: () => api.get('/notes'),
   create: (content) => api.post('/notes', { content }),
+  update: (id, content) => api.put(`/notes/${id}`, { content }),
   remove: (id) => api.delete(`/notes/${id}`),
+  share: (id, email, permission) => api.post(`/notes/${id}/share`, { email, permission }),
+  shares: (id) => api.get(`/notes/${id}/shares`),
+  revokeShare: (shareId) => api.delete(`/notes/shares/${shareId}`),
+  sharedWithMe: () => api.get('/notes/shared-with-me'),
 };
 
 export const exchangeRate = {

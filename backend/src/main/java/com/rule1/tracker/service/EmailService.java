@@ -62,4 +62,27 @@ public class EmailService {
             System.err.println("[EmailService] Failed to send share invite email: " + e.getMessage());
         }
     }
+
+    public void sendNoteShareInviteEmail(String toEmail, String ownerEmail, String permission) {
+        if (!isConfigured()) {
+            System.out.println("[EmailService] Mail not configured — skipping email to " + toEmail
+                    + " (note share invite from " + ownerEmail + ")");
+            return;
+        }
+        try {
+            SimpleMailMessage message = new SimpleMailMessage();
+            message.setFrom(fromAddress);
+            message.setTo(toEmail);
+            message.setSubject(ownerEmail + " shared a note with you on Rule #1 Tracker");
+            message.setText(
+                    ownerEmail + " has given you " + permission.toLowerCase() + " access to one of "
+                    + "their personal notes on Rule #1 Tracker.\n\n"
+                    + "Log in (or create an account with this email address) at " + frontendUrl
+                    + " and open \"My Notes\" to see it under \"Shared with me\".\n"
+            );
+            mailSenderProvider.getObject().send(message);
+        } catch (Exception e) {
+            System.err.println("[EmailService] Failed to send note share invite email: " + e.getMessage());
+        }
+    }
 }
