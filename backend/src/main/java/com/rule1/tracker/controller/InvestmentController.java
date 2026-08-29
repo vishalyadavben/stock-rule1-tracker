@@ -99,6 +99,7 @@ public class InvestmentController {
                     lot.getId(), stock != null ? stock.getTicker() : "?",
                     stock != null ? stock.getCompanyName() : null,
                     stock != null ? stock.getCurrency() : "USD",
+                    lot.getDisplayCurrency(),
                     lot.getQuantity(), lot.getRemainingQuantity(), lot.getBuyPrice(), lot.getBuyDate(),
                     currentPrice, stock != null && stock.getPriceSource() != null ? stock.getPriceSource().name() : null,
                     unrealizedGain, unrealizedGainPct, lot.getStatus().name(),
@@ -161,6 +162,25 @@ public class InvestmentController {
         } catch (RuntimeException e) {
             return ResponseEntity.status(403).body(Map.of("error", e.getMessage()));
         }
+    }
+
+    public record DisplayCurrencyRequest(String displayCurrency) {}
+
+    /** Sets (or clears, if displayCurrency is null/blank) a purely cosmetic display-currency
+     *  override for one holding. Deliberately does NOT require a password even for real-money
+     *  lots — this never touches buyPrice, quantity, or any financial figure, only which
+     *  currency the frontend converts to for display. Real conversion math happens client-side
+     *  using the live /api/exchange-rate endpoint. */
+    @PutMapping("/lots/{lotId}/display-currency")
+    public ResponseEntity<?> setDisplayCurrency(@PathVariable Long lotId, @RequestBody DisplayCurrencyRequest req) {
+        InvestmentLot lot = lotRepository.findById(lotId).orElse(null);
+        if (lot == null) return ResponseEntity.notFound().build();
+        if (!lot.getUserId().equals(CurrentUser.id())) {
+            return ResponseEntity.status(403).body(Map.of("error", "Not authorized for this lot"));
+        }
+        String value = req.displayCurrency();
+        lot.setDisplayCurrency(value == null || value.isBlank() ? null : value.toUpperCase());
+        return ResponseEntity.ok(lotRepository.save(lot));
     }
 
     public record ConfirmedDeleteRequest(String password) {}

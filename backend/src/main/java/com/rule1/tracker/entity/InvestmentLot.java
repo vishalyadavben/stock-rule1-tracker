@@ -36,6 +36,12 @@ public class InvestmentLot {
     @Column(name = "is_paper_money")
     private Boolean isPaperMoney = false;
 
+    /** Optional display-only currency override — null means "show in the stock's native
+     *  currency" (stocks.currency). Never affects buyPrice or any stored financial figure;
+     *  conversion happens only at render time via a live exchange rate. */
+    @Column(name = "display_currency")
+    private String displayCurrency;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

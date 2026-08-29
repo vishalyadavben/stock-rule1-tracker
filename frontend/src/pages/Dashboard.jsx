@@ -33,6 +33,8 @@ export default function Dashboard() {
   const [displayCurrency, setDisplayCurrency] = useState('INR');
   const [fxRate, setFxRate] = useState(1);
   const [fxError, setFxError] = useState('');
+  const [rowRates, setRowRates] = useState({});
+  const [rowRateError, setRowRateError] = useState('');
   const navigate = useNavigate();
 
   const load = async () => {
@@ -60,6 +62,54 @@ export default function Dashboard() {
   const toDisplay = (amount, currency) => {
     if (amount == null) return null;
     return currency === displayCurrency ? amount : amount * fxRate;
+  };
+
+  // Per-holding display currency (set via the dropdown in each row): this is a real, live
+  // conversion — never a relabeling — using the same exchange-rate endpoint as the totals
+  // above, but keyed per (native, chosen) currency pair so different holdings can each be
+  // viewed in their own chosen currency independently.
+  useEffect(() => {
+    const pairsNeeded = new Set();
+    holdings.forEach((h) => {
+      if (h.displayCurrency && h.displayCurrency !== h.currency) {
+        pairsNeeded.add(`${h.currency}_${h.displayCurrency}`);
+      }
+    });
+    const missing = [...pairsNeeded].filter((p) => !(p in rowRates));
+    if (missing.length === 0) return;
+    setRowRateError('');
+    Promise.all(missing.map((pair) => {
+      const [from, to] = pair.split('_');
+      return fx.rate(from, to).then((res) => [pair, Number(res.data.rate)]).catch(() => [pair, null]);
+    })).then((results) => {
+      const updates = {};
+      let hadError = false;
+      results.forEach(([pair, rate]) => {
+        updates[pair] = rate;
+        if (rate === null) hadError = true;
+      });
+      if (hadError) setRowRateError('Could not fetch one or more exchange rates — those rows show native currency instead.');
+      setRowRates((prev) => ({ ...prev, ...updates }));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [holdings]);
+
+  /** Effective currency + converted value for one holding's cells, respecting its own
+   *  per-holding display-currency override (defaults to native if unset or rate unavailable). */
+  const rowDisplay = (h, amount) => {
+    const targetCurrency = h.displayCurrency || h.currency;
+    if (amount == null) return { value: null, currency: targetCurrency };
+    if (!h.displayCurrency || h.displayCurrency === h.currency) {
+      return { value: amount, currency: h.currency };
+    }
+    const rate = rowRates[`${h.currency}_${h.displayCurrency}`];
+    if (rate == null) return { value: amount, currency: h.currency }; // fall back to native if rate not ready/failed
+    return { value: amount * rate, currency: h.displayCurrency };
+  };
+
+  const changeRowDisplayCurrency = async (lotId, value) => {
+    await investments.setDisplayCurrency(lotId, value === 'NATIVE' ? null : value);
+    load();
   };
 
   const addBuy = async (e) => {
@@ -291,18 +341,34 @@ export default function Dashboard() {
               </tr>
             </thead>
             <tbody>
-              {holdings.map((h) => (
+              {holdings.map((h) => {
+                const buyDisp = rowDisplay(h, h.buyPrice);
+                const investedDisp = rowDisplay(h, h.buyPrice * h.remainingQuantity);
+                const priceDisp = rowDisplay(h, h.currentPrice);
+                const gainDisp = rowDisplay(h, h.unrealizedGain);
+                return (
                 <React.Fragment key={h.lotId}>
                   <tr>
                     <td>
                       <Link to={`/stock/${h.ticker}`}>{h.ticker}</Link>
                       {h.isPaperMoney && <span className="badge fail" style={{ marginLeft: 6 }}>Paper</span>}
+                      <br />
+                      <select
+                        value={h.displayCurrency || 'NATIVE'}
+                        onChange={(e) => changeRowDisplayCurrency(h.lotId, e.target.value)}
+                        title="View this holding converted into a different currency (native values are never changed, only the display)"
+                        style={{ fontSize: 11, marginTop: 4, padding: '2px 4px' }}
+                      >
+                        <option value="NATIVE">Native ({h.currency})</option>
+                        <option value="USD">View in USD</option>
+                        <option value="INR">View in INR</option>
+                      </select>
                     </td>
                     <td>{h.remainingQuantity}</td>
-                    <td>{formatMoney(h.buyPrice, h.currency)}</td>
-                    <td>{formatMoney(h.buyPrice * h.remainingQuantity, h.currency)}</td>
+                    <td>{formatMoney(buyDisp.value, buyDisp.currency)}</td>
+                    <td>{formatMoney(investedDisp.value, investedDisp.currency)}</td>
                     <td>
-                      {h.currentPrice ? formatMoney(h.currentPrice, h.currency) : (
+                      {h.currentPrice ? formatMoney(priceDisp.value, priceDisp.currency) : (
                         <span style={{ color: '#94a3b8' }}>not set</span>
                       )}
                       {h.priceSource && (
@@ -312,7 +378,7 @@ export default function Dashboard() {
                       )}
                     </td>
                     <td className={h.unrealizedGain >= 0 ? 'positive' : 'negative'}>
-                      {h.unrealizedGain != null ? formatMoney(h.unrealizedGain, h.currency) : '—'}
+                      {h.unrealizedGain != null ? formatMoney(gainDisp.value, gainDisp.currency) : '—'}
                     </td>
                     <td className={h.unrealizedGainPct >= 0 ? 'positive' : 'negative'}>
                       {h.unrealizedGainPct != null ? `${Number(h.unrealizedGainPct).toFixed(2)}%` : '—'}
@@ -407,7 +473,7 @@ export default function Dashboard() {
                     </tr>
                   )}
                 </React.Fragment>
-              ))}
+              );})}
             </tbody>
           </table>
         )}

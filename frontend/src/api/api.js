@@ -37,6 +37,7 @@ export const investments = {
   refreshPrices: () => api.post('/investments/refresh-prices'),
   deleteLot: (lotId) => api.delete(`/investments/lots/${lotId}`),
   editLot: (lotId, data) => api.put(`/investments/lots/${lotId}`, data),
+  setDisplayCurrency: (lotId, displayCurrency) => api.put(`/investments/lots/${lotId}/display-currency`, { displayCurrency }),
   deleteLotConfirmed: (lotId, password) => api.post(`/investments/lots/${lotId}/delete-confirmed`, { password }),
   editExit: (exitId, data) => api.put(`/investments/exits/${exitId}`, data),
   deleteExitConfirmed: (exitId, password) => api.post(`/investments/exits/${exitId}/delete-confirmed`, { password }),

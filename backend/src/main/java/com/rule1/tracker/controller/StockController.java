@@ -33,10 +33,12 @@ public class StockController {
     }
 
     /** Adds a ticker to the master stock list if not present (idempotent).
-     *  Optional `currency` query param (defaults to USD) — set this to INR for NSE/BSE
-     *  tickers so prices display with the right symbol instead of a misleading $. If the
-     *  stock already exists and a currency is passed, it updates the currency too (so you
-     *  can fix a mislabeled stock without deleting and re-adding it). */
+     *  Optional `currency` query param (defaults to USD) — only applied when the stock is
+     *  being created for the very first time. Deliberately NEVER overwrites an existing
+     *  stock's currency on a later call: Stock is a single shared record across every user,
+     *  so silently "correcting" it here would mislabel it for everyone, not just the caller.
+     *  Use the per-holding display-currency feature to view a position converted into a
+     *  different currency instead — that never touches this shared record. */
     @PostMapping("/{ticker}")
     public ResponseEntity<Stock> addStock(@PathVariable String ticker, @RequestParam(required = false) String currency) {
         Stock stock = stockRepository.findByTicker(ticker.toUpperCase()).orElseGet(() -> {
@@ -46,9 +48,6 @@ public class StockController {
             s.setCreatedAt(LocalDateTime.now());
             return s;
         });
-        if (currency != null && stock.getId() != null) {
-            stock.setCurrency(currency.toUpperCase());
-        }
         return ResponseEntity.ok(stockRepository.save(stock));
     }
 
