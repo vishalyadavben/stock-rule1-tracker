@@ -51,5 +51,29 @@ public class ExchangeRateService {
         return rate;
     }
 
+    /**
+     * The FX rate as of a specific historical date — used to lock in the rate at the time of a
+     * purchase, so cost basis converts at the rate that applied then, not today's rate. Not
+     * cached (each date is a one-off historical lookup, not something that changes on refresh).
+     * Frankfurter only publishes rates for days the ECB actually published a reference rate
+     * (weekdays) — if the exact date has none, it returns the most recent prior rate, which is
+     * a reasonable approximation for a same-week purchase.
+     */
+    public BigDecimal getHistoricalRate(String from, String to, java.time.LocalDate date) {
+        if (from.equalsIgnoreCase(to)) return BigDecimal.ONE;
+        String url = String.format("https://api.frankfurter.app/%s?from=%s&to=%s",
+                date, from.toUpperCase(), to.toUpperCase());
+        JsonNode root;
+        try {
+            root = restTemplate.getForObject(url, JsonNode.class);
+        } catch (Exception e) {
+            throw new StockApiException("Could not fetch historical exchange rate " + from + "->" + to + " for " + date + ": " + e.getMessage());
+        }
+        if (root == null || !root.has("rates") || !root.get("rates").has(to.toUpperCase())) {
+            throw new StockApiException("No historical rate available for " + from + "->" + to + " on " + date);
+        }
+        return new BigDecimal(root.get("rates").get(to.toUpperCase()).asText()).setScale(6, RoundingMode.HALF_UP);
+    }
+
     private record CachedRate(BigDecimal rate, Instant fetchedAt) {}
 }

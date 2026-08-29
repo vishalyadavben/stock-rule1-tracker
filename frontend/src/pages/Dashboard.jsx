@@ -94,17 +94,50 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [holdings]);
 
-  /** Effective currency + converted value for one holding's cells, respecting its own
-   *  per-holding display-currency override (defaults to native if unset or rate unavailable). */
-  const rowDisplay = (h, amount) => {
-    const targetCurrency = h.displayCurrency || h.currency;
-    if (amount == null) return { value: null, currency: targetCurrency };
+  /** Full set of converted figures for one holding, using proper accounting treatment when a
+   *  display-currency override is active: cost basis (buy price / invested) converts at the
+   *  FX rate LOCKED IN at the time of purchase, while current price / value convert at TODAY'S
+   *  live rate. The resulting gain therefore reflects both the stock's own price movement AND
+   *  the currency's movement since you bought it — the correct total economic return in the
+   *  target currency, not an approximation that ignores FX drift on your original cost. */
+  const rowDisplay = (h) => {
+    const target = h.displayCurrency || h.currency;
     if (!h.displayCurrency || h.displayCurrency === h.currency) {
-      return { value: amount, currency: h.currency };
+      return {
+        currency: h.currency, buyPrice: h.buyPrice, invested: h.buyPrice * h.remainingQuantity,
+        currentPrice: h.currentPrice,
+        currentValue: h.currentPrice != null ? h.currentPrice * h.remainingQuantity : null,
+        gain: h.unrealizedGain, gainPct: h.unrealizedGainPct, usingHistorical: false, converted: false,
+      };
     }
-    const rate = rowRates[`${h.currency}_${h.displayCurrency}`];
-    if (rate == null) return { value: amount, currency: h.currency }; // fall back to native if rate not ready/failed
-    return { value: amount * rate, currency: h.displayCurrency };
+
+    const liveRate = rowRates[`${h.currency}_${target}`];
+    const hasLockedRate = h.buyFxRateToCurrency === target && h.buyFxRate != null;
+    const costRate = hasLockedRate ? Number(h.buyFxRate) : liveRate;
+
+    if (costRate == null || liveRate == null) {
+      // Rate not ready yet, or fetch failed — fall back to showing native values rather than
+      // a half-converted or wrong number.
+      return {
+        currency: h.currency, buyPrice: h.buyPrice, invested: h.buyPrice * h.remainingQuantity,
+        currentPrice: h.currentPrice,
+        currentValue: h.currentPrice != null ? h.currentPrice * h.remainingQuantity : null,
+        gain: h.unrealizedGain, gainPct: h.unrealizedGainPct, usingHistorical: false, converted: false,
+      };
+    }
+
+    const buyPriceD = h.buyPrice * costRate;
+    const investedD = buyPriceD * h.remainingQuantity;
+    const currentPriceD = h.currentPrice != null ? h.currentPrice * liveRate : null;
+    const currentValueD = currentPriceD != null ? currentPriceD * h.remainingQuantity : null;
+    const gainD = currentValueD != null ? currentValueD - investedD : null;
+    const gainPctD = gainD != null && investedD ? (gainD / investedD) * 100 : null;
+
+    return {
+      currency: target, buyPrice: buyPriceD, invested: investedD, currentPrice: currentPriceD,
+      currentValue: currentValueD, gain: gainD, gainPct: gainPctD,
+      usingHistorical: hasLockedRate, converted: true,
+    };
   };
 
   const changeRowDisplayCurrency = async (lotId, value) => {
@@ -342,10 +375,7 @@ export default function Dashboard() {
             </thead>
             <tbody>
               {holdings.map((h) => {
-                const buyDisp = rowDisplay(h, h.buyPrice);
-                const investedDisp = rowDisplay(h, h.buyPrice * h.remainingQuantity);
-                const priceDisp = rowDisplay(h, h.currentPrice);
-                const gainDisp = rowDisplay(h, h.unrealizedGain);
+                const d = rowDisplay(h);
                 return (
                 <React.Fragment key={h.lotId}>
                   <tr>
@@ -363,12 +393,21 @@ export default function Dashboard() {
                         <option value="USD">View in USD</option>
                         <option value="INR">View in INR</option>
                       </select>
+                      {d.converted && (
+                        <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }} title={
+                          d.usingHistorical
+                            ? "Cost converted at the FX rate on your buy date; current value at today's rate"
+                            : "No locked historical rate available — using today's rate for both cost and current value"
+                        }>
+                          {d.usingHistorical ? '📌 historical + live rate' : '⚠ live rate only'}
+                        </div>
+                      )}
                     </td>
                     <td>{h.remainingQuantity}</td>
-                    <td>{formatMoney(buyDisp.value, buyDisp.currency)}</td>
-                    <td>{formatMoney(investedDisp.value, investedDisp.currency)}</td>
+                    <td>{formatMoney(d.buyPrice, d.currency)}</td>
+                    <td>{formatMoney(d.invested, d.currency)}</td>
                     <td>
-                      {h.currentPrice ? formatMoney(priceDisp.value, priceDisp.currency) : (
+                      {h.currentPrice ? formatMoney(d.currentPrice, d.currency) : (
                         <span style={{ color: '#94a3b8' }}>not set</span>
                       )}
                       {h.priceSource && (
@@ -377,11 +416,11 @@ export default function Dashboard() {
                         </span>
                       )}
                     </td>
-                    <td className={h.unrealizedGain >= 0 ? 'positive' : 'negative'}>
-                      {h.unrealizedGain != null ? formatMoney(gainDisp.value, gainDisp.currency) : '—'}
+                    <td className={d.gain >= 0 ? 'positive' : 'negative'}>
+                      {d.gain != null ? formatMoney(d.gain, d.currency) : '—'}
                     </td>
-                    <td className={h.unrealizedGainPct >= 0 ? 'positive' : 'negative'}>
-                      {h.unrealizedGainPct != null ? `${Number(h.unrealizedGainPct).toFixed(2)}%` : '—'}
+                    <td className={d.gainPct >= 0 ? 'positive' : 'negative'}>
+                      {d.gainPct != null ? `${Number(d.gainPct).toFixed(2)}%` : '—'}
                     </td>
                     <td><span className="badge pass">{h.status}</span></td>
                     <td><button className="btn-sm" title="Enter the current market price yourself" onClick={() => openManualPrice(h.lotId)}>Set current price</button></td>

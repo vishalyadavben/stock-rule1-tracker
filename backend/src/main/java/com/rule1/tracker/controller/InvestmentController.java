@@ -103,7 +103,8 @@ public class InvestmentController {
                     lot.getQuantity(), lot.getRemainingQuantity(), lot.getBuyPrice(), lot.getBuyDate(),
                     currentPrice, stock != null && stock.getPriceSource() != null ? stock.getPriceSource().name() : null,
                     unrealizedGain, unrealizedGainPct, lot.getStatus().name(),
-                    lot.getIsPaperMoney() != null && lot.getIsPaperMoney()
+                    lot.getIsPaperMoney() != null && lot.getIsPaperMoney(),
+                    lot.getBuyFxRate(), lot.getBuyFxRateToCurrency()
             );
         }).toList();
 

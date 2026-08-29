@@ -42,6 +42,17 @@ public class InvestmentLot {
     @Column(name = "display_currency")
     private String displayCurrency;
 
+    /** FX rate from the stock's native currency to the OTHER supported currency, locked in as
+     *  of the buy date — used to convert cost basis correctly when viewing this holding in a
+     *  different currency (current value uses the live rate instead; see Dashboard). Null if
+     *  the historical rate couldn't be fetched at buy time (falls back to live rate for both
+     *  sides in that case). */
+    @Column(name = "buy_fx_rate")
+    private BigDecimal buyFxRate;
+
+    @Column(name = "buy_fx_rate_to_currency")
+    private String buyFxRateToCurrency;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

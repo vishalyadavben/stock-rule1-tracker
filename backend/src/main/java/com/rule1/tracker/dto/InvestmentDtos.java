@@ -12,7 +12,7 @@ public class InvestmentDtos {
             BigDecimal quantity, BigDecimal remainingQuantity,
             BigDecimal buyPrice, LocalDateTime buyDate,
             BigDecimal currentPrice, String priceSource, BigDecimal unrealizedGain, BigDecimal unrealizedGainPct,
-            String status, boolean isPaperMoney
+            String status, boolean isPaperMoney, BigDecimal buyFxRate, String buyFxRateToCurrency
     ) {}
 
     public record ExitHistoryView(

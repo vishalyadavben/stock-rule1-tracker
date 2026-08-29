@@ -19,19 +19,26 @@ public class InvestmentService {
     private final StockRepository stockRepository;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final ExchangeRateService exchangeRateService;
 
     public InvestmentService(InvestmentLotRepository lotRepository, InvestmentExitRepository exitRepository,
                               StockRepository stockRepository, UserRepository userRepository,
-                              PasswordEncoder passwordEncoder) {
+                              PasswordEncoder passwordEncoder, ExchangeRateService exchangeRateService) {
         this.lotRepository = lotRepository;
         this.exitRepository = exitRepository;
         this.stockRepository = stockRepository;
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.exchangeRateService = exchangeRateService;
     }
 
     /** Records a new buy as a fresh lot. isPaperMoney defaults to false (real money) if not
-     *  specified — a lot is only deletable later if it was explicitly marked paper money here. */
+     *  specified — a lot is only deletable later if it was explicitly marked paper money here.
+     *  Also locks in the FX rate from the stock's native currency to the other supported
+     *  currency (USD/INR) as of the buy date, so viewing this holding converted later uses the
+     *  correct historical rate for cost basis rather than today's rate. Best-effort: if the
+     *  rate service is unavailable, the buy still succeeds — the holding just falls back to
+     *  live-rate conversion for both sides, same as before this feature existed. */
     public InvestmentLot buy(Long userId, BuyRequest req) {
         Stock stock = stockRepository.findByTicker(req.ticker().toUpperCase())
                 .orElseThrow(() -> new RuntimeException("Stock not found — add it first via /api/stocks/{ticker}"));
@@ -42,10 +49,23 @@ public class InvestmentService {
         lot.setQuantity(req.quantity());
         lot.setRemainingQuantity(req.quantity());
         lot.setBuyPrice(req.buyPrice());
-        lot.setBuyDate(req.buyDate() != null ? req.buyDate() : LocalDateTime.now());
+        LocalDateTime buyDate = req.buyDate() != null ? req.buyDate() : LocalDateTime.now();
+        lot.setBuyDate(buyDate);
         lot.setStatus(InvestmentLot.LotStatus.OPEN);
         lot.setIsPaperMoney(req.isPaperMoney() != null && req.isPaperMoney());
         lot.setCreatedAt(LocalDateTime.now());
+
+        String native_ = stock.getCurrency() != null ? stock.getCurrency() : "USD";
+        String other = "USD".equalsIgnoreCase(native_) ? "INR" : "USD";
+        try {
+            BigDecimal rate = exchangeRateService.getHistoricalRate(native_, other, buyDate.toLocalDate());
+            lot.setBuyFxRate(rate);
+            lot.setBuyFxRateToCurrency(other);
+        } catch (Exception e) {
+            // Non-fatal — the buy still goes through, this holding just won't have a locked
+            // historical rate available (falls back to live-rate conversion, as before).
+        }
+
         return lotRepository.save(lot);
     }
 
@@ -137,7 +157,20 @@ public class InvestmentService {
             requireValidPassword(userId, password);
         }
         if (buyPrice != null) lot.setBuyPrice(buyPrice);
-        if (buyDate != null) lot.setBuyDate(buyDate);
+        if (buyDate != null && !buyDate.equals(lot.getBuyDate())) {
+            lot.setBuyDate(buyDate);
+            // Buy date changed — the locked historical FX rate is now for the wrong date, so
+            // refresh it. Best-effort, same as at buy time: failure here doesn't block the edit.
+            Stock stock = stockRepository.findById(lot.getStockId()).orElse(null);
+            if (stock != null) {
+                String native_ = stock.getCurrency() != null ? stock.getCurrency() : "USD";
+                String other = "USD".equalsIgnoreCase(native_) ? "INR" : "USD";
+                try {
+                    lot.setBuyFxRate(exchangeRateService.getHistoricalRate(native_, other, buyDate.toLocalDate()));
+                    lot.setBuyFxRateToCurrency(other);
+                } catch (Exception ignored) { /* keep old rate rather than fail the edit */ }
+            }
+        }
         return lotRepository.save(lot);
     }
 
