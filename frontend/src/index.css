@@ -44,3 +44,9 @@ th, td { text-align: left; padding: 8px; border-bottom: 1px solid #334155; }
 .badge.pass { background: #14532d; color: #4ade80; }
 .badge.fail { background: #450a0a; color: #f87171; }
 a { color: #60a5fa; }
+/* Native date-picker calendar icon defaults to a dark color that's invisible on this dark
+   theme's input backgrounds — invert it so it's actually visible. */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  cursor: pointer;
+}

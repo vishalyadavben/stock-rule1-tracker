@@ -100,4 +100,12 @@ export const shares = {
   sharedWithMe: () => api.get('/shares/shared-with-me'),
 };
 
+export const ipos = {
+  list: () => api.get('/ipos'),
+  create: (data) => api.post('/ipos', data),
+  update: (id, data) => api.put(`/ipos/${id}`, data),
+  remove: (id) => api.delete(`/ipos/${id}`),
+  removeConfirmed: (id, password) => api.post(`/ipos/${id}/delete-confirmed`, { password }),
+};
+
 export default api;
