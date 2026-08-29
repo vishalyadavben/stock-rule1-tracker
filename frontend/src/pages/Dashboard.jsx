@@ -423,7 +423,7 @@ export default function Dashboard() {
                       {d.gainPct != null ? `${Number(d.gainPct).toFixed(2)}%` : '—'}
                     </td>
                     <td><span className="badge pass">{h.status}</span></td>
-                    <td><button className="btn-sm" title="Enter the current market price yourself" onClick={() => openManualPrice(h.lotId)}>Set current price</button></td>
+                    <td><button className="btn-sm" title="Enter the current market price yourself" onClick={() => openManualPrice(h.lotId)}>Set price</button></td>
                     <td><button className="btn-sm" onClick={() => openSell(h.lotId)}>Sell</button></td>
                     <td><button className="btn-sm" onClick={() => openEdit(h)}>Edit</button></td>
                   </tr>
