@@ -17,6 +17,15 @@ function growthCell(rates, key) {
   return <span className={pass ? 'positive' : 'negative'}>{v}%</span>;
 }
 
+function trendArrow(trends, key) {
+  if (!trends) return null;
+  const t = trends[key];
+  if (t === 'UP') return <span className="positive" title="ROIC improved from the start to the end of this window"> ▲</span>;
+  if (t === 'DOWN') return <span className="negative" title="ROIC declined from the start to the end of this window"> ▼</span>;
+  if (t === 'FLAT') return <span style={{ color: '#94a3b8' }} title="ROIC unchanged across this window"> ▬</span>;
+  return null;
+}
+
 export default function StockDetail() {
   const { ticker } = useParams();
   const [searchParams] = useSearchParams();
@@ -471,6 +480,8 @@ export default function StockDetail() {
         <h4 style={{ marginTop: 20 }}>Growth rates</h4>
         <p style={{ color: '#94a3b8', fontSize: 13 }}>
           Each metric is calculated independently — a gap in one never blocks seeing the others.
+          ROIC shows an average (not a growth rate) since it's already a percentage, with
+          ▲/▼/▬ showing whether it improved, declined, or stayed flat across that window.
         </p>
         <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
           <input placeholder="Custom year(s), e.g. 7 or 7,15" value={customYears}
@@ -489,7 +500,9 @@ export default function StockDetail() {
             <tr><td>EPS</td>{growthColumns.map((y) => <td key={y}>{growthCell(growthRates?.eps, `${y}yr`)}</td>)}</tr>
             <tr><td>Equity</td>{growthColumns.map((y) => <td key={y}>{growthCell(growthRates?.equity, `${y}yr`)}</td>)}</tr>
             <tr><td>Free Cash Flow</td>{growthColumns.map((y) => <td key={y}>{growthCell(growthRates?.freeCashFlow, `${y}yr`)}</td>)}</tr>
-            <tr><td>ROIC (average)</td>{growthColumns.map((y) => <td key={y}>{growthCell(growthRates?.roic, `${y}yr`)}</td>)}</tr>
+            <tr><td>ROIC (average)</td>{growthColumns.map((y) => (
+              <td key={y}>{growthCell(growthRates?.roic, `${y}yr`)}{trendArrow(growthRates?.roicTrend, `${y}yr`)}</td>
+            ))}</tr>
           </tbody>
         </table>
 

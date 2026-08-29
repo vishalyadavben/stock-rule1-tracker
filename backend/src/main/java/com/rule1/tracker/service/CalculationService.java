@@ -68,9 +68,12 @@ public class CalculationService {
      * a cumulative value, so "growth" doesn't apply the same way it does to Sales/EPS/Equity/
      * FCF; what's useful instead is the mean over each window, shown the same way (10yr/5yr/
      * 3yr/1yr) so it lines up visually with the other four metrics.
-     * The window is a calendar-year range (latest year − window + 1) through (latest year),
-     * not "however many rows happen to exist" — so a gap year with no data just isn't counted,
-     * rather than silently shifting which years are considered part of the window.
+     * The window is a calendar-year range (latest year − window + 1) through (latest year).
+     * Critically, a window only gets a value if your data actually REACHES BACK that far — the
+     * earliest year on file must be at or before the window's start year. Without this check, a
+     * single data point (e.g. only 2026) would satisfy every window's date filter simultaneously
+     * and show the same number under 10yr, 5yr, 3yr, and 1yr, which falsely implies years of
+     * history that don't exist.
      */
     public Map<String, BigDecimal> averageRoic(List<BigFiveMetric> yearlySorted, int... windows) {
         Map<String, BigDecimal> result = new java.util.LinkedHashMap<>();
@@ -79,9 +82,14 @@ public class CalculationService {
             return result;
         }
         int latestYear = yearlySorted.get(yearlySorted.size() - 1).getFiscalYear();
+        int earliestYear = yearlySorted.get(0).getFiscalYear();
 
         for (int window : windows) {
             int startYear = latestYear - window + 1;
+            if (earliestYear > startYear) {
+                result.put(window + "yr", null); // data doesn't actually reach back this far
+                continue;
+            }
             List<BigDecimal> values = yearlySorted.stream()
                     .filter(m -> m.getFiscalYear() >= startYear && m.getFiscalYear() <= latestYear)
                     .map(BigFiveMetric::getRoicPct)
@@ -93,6 +101,44 @@ public class CalculationService {
             }
             BigDecimal sum = values.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
             result.put(window + "yr", sum.divide(BigDecimal.valueOf(values.size()), 2, RoundingMode.HALF_UP));
+        }
+        return result;
+    }
+
+    /**
+     * Trend direction for each ROIC window: compares the earliest year's ROIC within that
+     * window against the latest year's, so a user can see whether ROIC is improving, declining,
+     * or flat — the average alone tells you the level, not the direction. Follows the exact
+     * same "must actually reach back that far" rule as averageRoic, for the same reason.
+     */
+    public Map<String, String> roicTrend(List<BigFiveMetric> yearlySorted, int... windows) {
+        Map<String, String> result = new java.util.LinkedHashMap<>();
+        if (yearlySorted.isEmpty()) {
+            for (int window : windows) result.put(window + "yr", null);
+            return result;
+        }
+        int latestYear = yearlySorted.get(yearlySorted.size() - 1).getFiscalYear();
+        int earliestYear = yearlySorted.get(0).getFiscalYear();
+        BigDecimal latestVal = yearlySorted.get(yearlySorted.size() - 1).getRoicPct();
+
+        for (int window : windows) {
+            int startYear = latestYear - window + 1;
+            if (earliestYear > startYear || latestVal == null) {
+                result.put(window + "yr", null);
+                continue;
+            }
+            BigDecimal firstVal = yearlySorted.stream()
+                    .filter(m -> m.getFiscalYear() >= startYear && m.getFiscalYear() <= latestYear)
+                    .map(BigFiveMetric::getRoicPct)
+                    .filter(java.util.Objects::nonNull)
+                    .findFirst()
+                    .orElse(null);
+            if (firstVal == null) {
+                result.put(window + "yr", null);
+                continue;
+            }
+            int cmp = latestVal.compareTo(firstVal);
+            result.put(window + "yr", cmp > 0 ? "UP" : cmp < 0 ? "DOWN" : "FLAT");
         }
         return result;
     }
